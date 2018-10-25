@@ -2,7 +2,8 @@ from deap import gp
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
 import numpy as np
-
+from operator import eq
+from functools import partial
 
 class EvolutionaryForest(Classifier):
 
@@ -14,7 +15,14 @@ class EvolutionaryForest(Classifier):
         self._reset_pset()
 
     def _reset_pset(self):
-        self.pset = gp.PrimitiveSetTyped("main", [bool, float], np.array)
+        self.pset = gp.PrimitiveSetTyped("main", [np.ndarray], np.ndarray)
+
+    def feature_node(self, data, *args):
+        """ A feature node doesnt actually need to do anything, as all the processing is done
+        in the children nodes. This just serves as a dummy node to make the trees clearer, and
+        allow better/valid breeding as we can crossover feature nodes."""
+
+        return data
 
     def apply_filter(self, data, feature_index, condition):
 
@@ -30,21 +38,33 @@ class EvolutionaryForest(Classifier):
 
         num_instances, num_features = x.shape
 
-        for feature in range(num_features):
+        for feature_index in range(num_features):
+            feature_name = "Feature"+str(feature_index)
             # The unique values for the feature
-            feature_values = set(x[:, feature])
+            feature_values = set(x[:, feature_index])
 
+            # For strongly-typed GP we need to make a custom type for each value to preserve correct structure
+            input_types = []
 
-            print("Need to add a node for feature", feature, "with a child for", feature_values)
+            # Add the feature value nodes. These will form the children of the feature_node
+            for value in feature_values:
 
-            # Need to add each feature value as a terminal
+                feature_output_name = feature_name+"_"+str(value) + "Type"
+                feature_output_type = type(feature_output_name, (np.ndarray,), {})
 
-            # Then need to add the feature as a primitive/function
-            #self.pset.addPrimitive(primitive, in_types, np.array, name="Feature"+str(feature))
+                # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
+                self.pset.addPrimitive(lambda data, val=value:
+                                       self.apply_filter(data, feature_index, partial(eq, val)),
+                                       [np.ndarray], feature_output_type, # Takes in a ndarray and returns special type
+                                       name=feature_name+"_"+str(value))
 
+                input_types.append(feature_output_type)
 
-        print(x.shape)
-        pass
+                # Todo: do we need this?
+                self.pset.context[feature_output_name] = feature_output_type
+
+            # Add the feature node, with the categorical inputs from above
+            self.pset.addPrimitive(self.feature_node, [*input_types], np.ndarray, name=feature_name)
 
     def _add_terminal_set(self, x):
         pass
