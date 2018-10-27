@@ -5,11 +5,14 @@ from sklearn.utils import shuffle
 import numpy as np
 from operator import eq
 from functools import partial
-import operator
-import itertools
-import random
 
-class EvolutionaryForest(Classifier):
+# The training data is just an ndarray
+train_data_type = type("TrainData", (np.ndarray, ), {})
+
+# A mask is an input record, which shows which path we must take through the tree. This is just a 1darray
+mask_type = type("Mask", (np.ndarray, ), {})
+
+class EvolutionaryBase(Classifier):
 
     def __init__(self, max_trees=10, max_depth=10, num_generations=50):
         self.max_trees = max_trees
@@ -23,18 +26,21 @@ class EvolutionaryForest(Classifier):
         self.mut_rate = 0.25
 
     def _reset_pset(self):
-        self.pset = gp.PrimitiveSetTyped("MAIN", [np.ndarray], np.ndarray)
+        self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
 
-    def _fitness_function(self, individual, data_x, data_y):
-        func = self.toolbox.compile(expr=individual)
-        matching_data = func(data_x)
+    def _fitness_function(self, individual, train_data):
+        callable_tree = self.toolbox.compile(expr=individual)
+
+        mask = train_data[0]
+        matching_data = callable_tree(mask, train_data)  # The subset of data that matches
+
         print(individual)
+        print(mask)
         print(matching_data.shape)
+        print("------")
         return 0,
 
     def create_toolbox(self, pset):
-        toolbox = base.Toolbox()
-
         # Fitness is f1-score. So the larger the better
         creator.create("FitnessMax", base.Fitness, weights=(1.0,))
         creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax,
@@ -55,12 +61,24 @@ class EvolutionaryForest(Classifier):
 
         return toolbox
 
-    def feature_node(self, data, *args):
-        """ A feature node doesnt actually need to do anything, as all the processing is done
-        in the children nodes. This just serves as a dummy node to make the trees clearer, and
-        allow better/valid breeding as we can crossover feature nodes."""
+    def feature_node(self, feature_idx, mask, *children):
+        """
+            A feature node checks the output of its children, and
+            returns the one which matches the specified mask.
 
-        return data
+        :param children:
+        :return:
+        """
+
+        children_outputs = [self.apply_filter(data, feature_idx, condition_check) for condition_check, data in children
+                            if condition_check(mask[feature_idx])]
+
+        if len(children_outputs) > 1:
+            raise Exception("Multiple leaves true. They should be mutually exclusive")
+
+        print("Intemediary output shape for", feature_idx, children_outputs[0].shape)
+
+        return children_outputs[0]
 
     def apply_filter(self, data, feature_index, condition):
 
@@ -72,7 +90,7 @@ class EvolutionaryForest(Classifier):
 
         return filtered_data
 
-    def _add_function_set(self, x):
+    def _add_functions_and_terminals(self, x):
 
         num_instances, num_features = x.shape
 
@@ -82,10 +100,12 @@ class EvolutionaryForest(Classifier):
             feature_values = set(x[:, feature_index])
 
             # For strongly-typed GP we need to make a custom type for each value to preserve correct structure
-            featue_node_input_types = []
+            feature_node_input_types = []
 
             # Add the feature value nodes. These will form the children of the feature_node
             for value in feature_values:
+
+                print("Value is: ", value)
 
                 feature_output_name = feature_name+"_"+str(value) + "Type"
 
@@ -93,30 +113,29 @@ class EvolutionaryForest(Classifier):
                 feature_value_output_type = type(feature_output_name, (np.ndarray,), {})
 
                 # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
-                self.pset.addPrimitive(lambda data, val=value, feature_idx=feature_index:
-                                       self.apply_filter(data, feature_idx, partial(eq, val)),
-                                       [np.ndarray], feature_value_output_type,
+                self.pset.addPrimitive(lambda data, val=value: (partial(eq, val), data),
+                                       [train_data_type], feature_value_output_type,
                                        name=feature_name+"_"+str(value))
 
-                featue_node_input_types.append(feature_value_output_type)
+                feature_node_input_types.append(feature_value_output_type)
 
             # Add the feature node, with the categorical inputs from above.
-            self.pset.addPrimitive(self.feature_node, [*featue_node_input_types], np.ndarray, name=feature_name)
+            self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.feature_node(feature_idx, *xargs),
+                                   [mask_type, *feature_node_input_types],
+                                   train_data_type, name=feature_name)
 
-    def _add_terminal_set(self, x):
-        self.pset.addEphemeralConstant("rand100", lambda: random.random() * 100, float)
 
-        self.pset.addTerminal(False, bool)
-        self.pset.addTerminal(True, bool)
 
     def fit(self, x, y):
         # Ensure we use numpy arrays
         x, y = shuffle(np.asarray(x), np.asarray(y))
 
-        self.toolbox.register("evaluate", self._fitness_function, data_x=x, data_y=y)
+        # Combine to make it easier for processing
+        train_data = np.hstack((x, y))
 
-        self._add_function_set(x)
-        self._add_terminal_set(x)
+        self.toolbox.register("evaluate", self._fitness_function, train_data=train_data)
+
+        self._add_functions_and_terminals(x)
 
         stats = tools.Statistics(lambda ind: ind.fitness.values)
         stats.register("avg", np.mean)
