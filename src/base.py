@@ -2,8 +2,7 @@ from deap import gp, algorithms, base, creator, tools
 from src import deapfix
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
-from sklearn.model_selection import train_test_split
-from sklearn import metrics
+import random
 import numpy as np
 import operator
 from operator import eq
@@ -53,7 +52,7 @@ class EvolutionaryBase(Classifier):
 
         return toolbox
 
-    def feature_node(self, feature_idx, mask, *children):
+    def categorical_feature_node(self, feature_idx, mask, *children):
         """
             A feature node checks the output of its children, and
             returns the one which matches the specified mask.
@@ -69,6 +68,17 @@ class EvolutionaryBase(Classifier):
             raise Exception("Multiple leaves true. They should be mutually exclusive")
 
         return children_outputs[0]
+
+    def numeric_feature_node(self, split, feature_idx, mask, *children):
+        children_outputs = [self._apply_filter(data, feature_idx, partial(condition_check, split))
+                            for condition_check, data in children
+                            if condition_check(split, mask[feature_idx])]
+
+        if len(children_outputs) > 1:
+            raise Exception("Multiple leaves true. They should be mutually exclusive")
+
+        return children_outputs[0]
+
 
     def _apply_filter(self, data, feature_index, condition):
 
@@ -100,9 +110,42 @@ class EvolutionaryBase(Classifier):
             feature_node_input_types.append(feature_value_output_type)
 
         # Add the feature node, with the categorical inputs from above.
-        self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.feature_node(feature_idx, *xargs),
+        self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.categorical_feature_node(feature_idx, *xargs),
                                [mask_type, *feature_node_input_types],
                                train_data_type, name=feature_name)
+
+    def _add_numeric_feature(self, feature_values, feature_index, feature_name):
+
+        minimum_feature_value = min(feature_values)
+        maximum_feature_value = max(feature_values)
+
+        split_type = type(feature_name+"Split", (float, ), {})  # Splitting point type is just a restricted float
+
+        # Terminals are random constant in the feature range
+        self.pset.addEphemeralConstant(feature_name+"Split",
+                                       lambda: random.uniform(minimum_feature_value, maximum_feature_value),
+                                       split_type)
+
+        # TODO: If integers should we add equals?
+        operators = [operator.le, operator.gt]
+
+        feature_node_input_types = []
+
+        for split_operator in operators:
+
+            feature_value_output_type = type(feature_name + "_" + split_operator.__name__ + "Type", (np.ndarray,), {})
+
+            self.pset.addPrimitive(lambda data, op=split_operator: (op, data),
+                                   [train_data_type], feature_value_output_type,
+                                   name=feature_name + "_" + split_operator.__name__ + split_operator.__name__)
+
+            feature_node_input_types.append(feature_value_output_type)
+
+        self.pset.addPrimitive(lambda split, mask, *xargs, feature_idx=feature_index:
+                               self.numeric_feature_node(split, feature_idx, mask, *xargs),
+                               [split_type, mask_type, *feature_node_input_types],
+                               train_data_type, name=feature_name+split_operator.__name__)
+
 
     def _add_functions_and_terminals(self, x):
 
@@ -117,6 +160,8 @@ class EvolutionaryBase(Classifier):
 
             if feature_type == str:
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
+            else:
+                self._add_numeric_feature(feature_values, feature_index, feature_name)
 
 
     def fit(self, x, y):

@@ -82,8 +82,9 @@ def generate(pset, min_, max_, condition, type_=None):
     while len(stack) != 0:
         depth, type_ = stack.pop()
 
-        # We should add a terminal if we are at the desired height or if we have a Mask as this is only a terminal node
-        if condition(height, depth) or type_.__name__ == "Mask":
+        # We should add a terminal if we are at the desired height or alternatively if we are at a node that is
+        # only available as a terminal
+        if condition(height, depth) or type_.__name__ == "Mask" or "Split" in type_.__name__:
             try:
                 term = random.choice(pset.terminals[type_])
 

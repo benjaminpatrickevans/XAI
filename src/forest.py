@@ -23,6 +23,8 @@ class EvolutionaryForest(EvolutionaryBase):
         return classes[majority_class_idx]
 
     def _fitness_function(self, individual, train_data):
+        print(individual)
+
         callable_tree = self.toolbox.compile(expr=individual)
 
         training_data, valid_data = train_test_split(train_data, test_size=0.2)
@@ -32,6 +34,8 @@ class EvolutionaryForest(EvolutionaryBase):
         predictions = []
 
         for mask in valid_data:
+
+            print(mask)
 
             # The subset of data that matches our mask
             matching_data = callable_tree(mask, training_data)
