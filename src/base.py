@@ -15,6 +15,7 @@ train_data_type = type("TrainData", (np.ndarray, ), {})
 # A mask is an input record, which shows which path we must take through the tree. This is just a 1darray
 mask_type = type("Mask", (np.ndarray, ), {})
 
+
 class EvolutionaryBase(Classifier):
 
     def __init__(self, max_trees, max_depth, num_generations):
@@ -61,7 +62,7 @@ class EvolutionaryBase(Classifier):
         :return:
         """
 
-        children_outputs = [self.apply_filter(data, feature_idx, condition_check) for condition_check, data in children
+        children_outputs = [self._apply_filter(data, feature_idx, condition_check) for condition_check, data in children
                             if condition_check(mask[feature_idx])]
 
         if len(children_outputs) > 1:
@@ -69,7 +70,7 @@ class EvolutionaryBase(Classifier):
 
         return children_outputs[0]
 
-    def apply_filter(self, data, feature_index, condition):
+    def _apply_filter(self, data, feature_index, condition):
 
         # Apply the condition to the feature_index, returning the indices of rows where the condition was met
         filtered_indices = np.where(condition(data[:, feature_index]))
@@ -78,6 +79,30 @@ class EvolutionaryBase(Classifier):
         filtered_data = data[filtered_indices]
 
         return filtered_data
+
+    def _add_categorical_feature(self, feature_values, feature_index, feature_name):
+
+        # For strongly-typed GP we need to make a custom type for each value to preserve correct structure
+        feature_node_input_types = []
+
+        # Add the feature value nodes. These will form the children of the feature_node
+        for value in feature_values:
+            feature_output_name = feature_name + "_" + str(value) + "Type"
+
+            # Each feature value needs a special output type to ensure trees have a branch for each category
+            feature_value_output_type = type(feature_output_name, (np.ndarray,), {})
+
+            # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
+            self.pset.addPrimitive(lambda data, val=value: (partial(eq, val), data),
+                                   [train_data_type], feature_value_output_type,
+                                   name=feature_name + "_" + str(value))
+
+            feature_node_input_types.append(feature_value_output_type)
+
+        # Add the feature node, with the categorical inputs from above.
+        self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.feature_node(feature_idx, *xargs),
+                               [mask_type, *feature_node_input_types],
+                               train_data_type, name=feature_name)
 
     def _add_functions_and_terminals(self, x):
 
@@ -88,27 +113,11 @@ class EvolutionaryBase(Classifier):
             # The unique values for the feature
             feature_values = set(x[:, feature_index])
 
-            # For strongly-typed GP we need to make a custom type for each value to preserve correct structure
-            feature_node_input_types = []
+            feature_type = type(next(iter(feature_values)))
 
-            # Add the feature value nodes. These will form the children of the feature_node
-            for value in feature_values:
-                feature_output_name = feature_name+"_"+str(value) + "Type"
+            if feature_type == str:
+                self._add_categorical_feature(feature_values, feature_index, feature_name)
 
-                # Each feature value needs a special output type to ensure trees have a branch for each category
-                feature_value_output_type = type(feature_output_name, (np.ndarray,), {})
-
-                # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
-                self.pset.addPrimitive(lambda data, val=value: (partial(eq, val), data),
-                                       [train_data_type], feature_value_output_type,
-                                       name=feature_name+"_"+str(value))
-
-                feature_node_input_types.append(feature_value_output_type)
-
-            # Add the feature node, with the categorical inputs from above.
-            self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.feature_node(feature_idx, *xargs),
-                                   [mask_type, *feature_node_input_types],
-                                   train_data_type, name=feature_name)
 
     def fit(self, x, y):
         # Ensure we use numpy arrays

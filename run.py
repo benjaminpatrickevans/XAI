@@ -1,7 +1,7 @@
 from helpers import read_data
 from src.forest import EvolutionaryForest
 
-data_x, data_y = read_data("data/balloons.data")
+data_x, data_y = read_data("data/iris.data")
 
 print(data_x)
 
