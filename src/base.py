@@ -5,6 +5,7 @@ from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 from sklearn import metrics
 import numpy as np
+import operator
 from operator import eq
 from functools import partial
 
@@ -18,7 +19,7 @@ class EvolutionaryBase(Classifier):
 
     def __init__(self, max_trees=10, max_depth=10, num_generations=50):
         self.max_trees = max_trees
-        self.tree_depth = max_depth
+        self.max_depth = max_depth
         self.num_generations = num_generations
 
         self._reset_pset()
@@ -101,8 +102,6 @@ class EvolutionaryBase(Classifier):
         if len(children_outputs) > 1:
             raise Exception("Multiple leaves true. They should be mutually exclusive")
 
-        print("Intemediary output shape for", feature_idx, children_outputs[0].shape)
-
         return children_outputs[0]
 
     def apply_filter(self, data, feature_index, condition):
@@ -155,6 +154,18 @@ class EvolutionaryBase(Classifier):
         # Ensure we use numpy arrays
         x, y = shuffle(np.asarray(x), np.asarray(y))
 
+        num_instances, num_features = x.shape
+
+        # We should never exceed the user specified height of trees, however, if this height is too large we should
+        # limit it. If a tree height is > num features, by definition duplicates must appear which we want to
+        # minimise
+
+        print("Max depth was:", self.max_depth)
+        self.max_depth = min(self.max_depth, num_features)
+        print("Max depth changed to:", self.max_depth)
+        self.toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
+        self.toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
+
         # Combine to make it easier for processing
         train_data = np.hstack((x, y))
 
@@ -163,10 +174,10 @@ class EvolutionaryBase(Classifier):
         self._add_functions_and_terminals(x)
 
         stats = tools.Statistics(lambda ind: ind.fitness.values)
-        stats.register("avg", np.mean)
-        stats.register("std", np.std)
         stats.register("min", np.min)
+        stats.register("avg", np.mean)
         stats.register("max", np.max)
+        stats.register("std", np.std)
 
         pop = self.toolbox.population(n=self.max_trees)
 
