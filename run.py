@@ -27,8 +27,11 @@ evoTree = EvolutionaryForest(max_trees=50, num_generations=10)
 evoTree.fit(X_train, y_train)
 preds = evoTree.predict(X_test)
 ensemble_preds = evoTree.predict_majority(X_test)
+weighted_ensemble_preds = evoTree.predict_weighted_majority(X_test)
 evaluate("Evolutionary Tree", preds)
 evaluate("Evolutionary Forest (Majority)", ensemble_preds)
+evaluate("Evolutionary Forest (Weighted Majority)", weighted_ensemble_preds)
+
 
 dt = DecisionTreeClassifier()
 dt.fit(X_train, y_train)

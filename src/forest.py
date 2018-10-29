@@ -73,6 +73,13 @@ class EvolutionaryForest(EvolutionaryBase):
 
         return self._soft_voting(x)
 
+    def predict_weighted_majority(self, x):
+        if self.models is None:
+            raise Exception("You must call fit before predict!")
+
+        weights = [model.fitness.values[0] for model in self.models]
+        return self._soft_voting(x, weights)
+
     def _soft_voting(self, x, weights=None):
 
         x = np.asarray(x)
@@ -82,11 +89,13 @@ class EvolutionaryForest(EvolutionaryBase):
 
         for instance in x:
             class_probabilities = [self._predict_probabilities(model, instance, self.train_data)[0]
-                                   for model in self.models] # The predicted probability vector from each model
+                                   for model in self.models]  # The predicted probability vector from each model
 
-            class_probabilities = np.average(class_probabilities, axis=0)  # Average across the models
+            # Average across the models
+            average_class_probability = np.average(class_probabilities, axis=0, weights=weights)
 
-            prediction = all_classes[np.argmax(class_probabilities)]  # Choose the class with highest average
+            # Choose the class with highest average
+            prediction = all_classes[np.argmax(average_class_probability)]
 
             predictions.append(prediction)
 

@@ -199,12 +199,11 @@ class EvolutionaryBase(Classifier):
 
         hof = tools.HallOfFame(1)  # We only use the best evolved model
 
-        population, logbook = algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations, stats=stats,
-                            halloffame=hof)
+        population, logbook = algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations,
+                                                  stats=stats, halloffame=hof)
 
         self.model = hof[0]
+        self.models = population  # Final population
 
-        self.models = population # Final population
-
-        # Temporary
+        # TODO: Can we avoid this?
         self.train_data = train_data
