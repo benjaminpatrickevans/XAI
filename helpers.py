@@ -21,4 +21,7 @@ def read_data(data_path, class_index="last"):
         dataX = data[:, 1:]
         dataY = data[:, 0].astype(str)  # Class label is a string
 
-    return pd.DataFrame(dataX), pd.DataFrame(dataY)
+    dataX = np.asarray(dataX)
+    dataY = np.asarray(dataY).reshape(-1, 1)
+
+    return dataX, dataY

@@ -155,8 +155,9 @@ class EvolutionaryBase(Classifier):
             feature_name = "Feature"+str(feature_index)
             # The unique values for the feature
             feature_values = set(x[:, feature_index])
-
             feature_type = type(next(iter(feature_values)))
+
+            print(feature_values, feature_type)
 
             if feature_type == str:
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
@@ -195,4 +196,12 @@ class EvolutionaryBase(Classifier):
 
         pop = self.toolbox.population(n=self.max_trees)
 
-        algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations, stats=stats)
+        hof = tools.HallOfFame(1)  # We only use the best evolved model
+
+        algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations, stats=stats,
+                            halloffame=hof)
+
+        self.model = hof[0]
+
+        # Temporary
+        self.train_data = train_data
