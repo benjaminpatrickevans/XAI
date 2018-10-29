@@ -17,10 +17,11 @@ mask_type = type("Mask", (np.ndarray, ), {})
 
 class EvolutionaryBase(Classifier):
 
-    def __init__(self, max_trees, max_depth, num_generations):
+    def __init__(self, max_trees, max_depth, num_generations, verbose):
         self.max_trees = max_trees
         self.max_depth = max_depth
         self.num_generations = num_generations
+        self.verbose = verbose
 
         self._reset_pset()
         self.toolbox = self.create_toolbox(self.pset)
@@ -177,7 +178,7 @@ class EvolutionaryBase(Classifier):
 
         print("Max depth was:", self.max_depth)
         self.max_depth = min(self.max_depth, num_features)
-        print("Max depth changed to:", self.max_depth)
+        print("Max depth changed to the max number of features:", self.max_depth)
         self.toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
         self.toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
 
@@ -198,10 +199,12 @@ class EvolutionaryBase(Classifier):
 
         hof = tools.HallOfFame(1)  # We only use the best evolved model
 
-        algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations, stats=stats,
+        population, logbook = algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations, stats=stats,
                             halloffame=hof)
 
         self.model = hof[0]
+
+        self.models = population # Final population
 
         # Temporary
         self.train_data = train_data

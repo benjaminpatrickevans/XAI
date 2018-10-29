@@ -10,8 +10,8 @@ import numpy as np
 
 class EvolutionaryForest(EvolutionaryBase):
 
-    def __init__(self, max_trees=10, max_depth=10, num_generations=50):
-        super().__init__(max_trees, max_depth, num_generations)
+    def __init__(self, max_trees=10, max_depth=10, num_generations=50, verbose=0):
+        super().__init__(max_trees, max_depth, num_generations, verbose)
 
     def _predict_for_instance(self, instance, training_data, individual):
         probabilities, majority_class = self._predict_probabilities(individual, instance, training_data)
@@ -54,7 +54,9 @@ class EvolutionaryForest(EvolutionaryBase):
         predictions = [self._predict_for_instance(instance, training_data, individual) for instance in valid_data]
         f1 = metrics.f1_score(valid_data[:, -1], predictions, average="weighted")
 
-        print(individual, f1)
+        if self.verbose:
+            print(individual, f1)
+
         return f1,
 
     def predict(self, x):
@@ -66,21 +68,23 @@ class EvolutionaryForest(EvolutionaryBase):
 
 
     def predict_majority(self, x):
-        if self.model is None:
+        if self.models is None:
             raise Exception("You must call fit before predict!")
+
+        return self._soft_voting(x)
+
+    def _soft_voting(self, x, weights=None):
 
         x = np.asarray(x)
         predictions = []
 
         all_classes = np.unique(self.train_data[:, -1])
 
-        self.models = [self.model] * 5 # TODO: Temporary
-
         for instance in x:
             class_probabilities = [self._predict_probabilities(model, instance, self.train_data)[0]
                                    for model in self.models] # The predicted probability vector from each model
 
-            class_probabilities = np.mean(class_probabilities, axis=0)  # Average across the models
+            class_probabilities = np.average(class_probabilities, axis=0)  # Average across the models
 
             prediction = all_classes[np.argmax(class_probabilities)]  # Choose the class with highest average
 
