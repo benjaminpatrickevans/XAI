@@ -3,7 +3,7 @@ from deap import gp, algorithms, base, creator, tools
 from src import deapfix
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn import metrics
 import numpy as np
 
@@ -50,14 +50,24 @@ class EvolutionaryForest(EvolutionaryBase):
         return class_probabilities, classes[majority_class_idx]
 
     def _fitness_function(self, individual, train_data):
-        training_data, valid_data = train_test_split(train_data, test_size=0.2)
-        predictions = [self._predict_for_instance(instance, training_data, individual) for instance in valid_data]
-        f1 = metrics.f1_score(valid_data[:, -1], predictions, average="weighted")
+        #training_data, valid_data = train_test_split(train_data, test_size=0.2)
+
+        kf = KFold(random_state=0)
+
+        scores = []
+
+        for train_index, test_index in kf.split(train_data):
+            training_data, valid_data = train_data[train_index], train_data[test_index]
+            predictions = [self._predict_for_instance(instance, training_data, individual) for instance in valid_data]
+            f1 = metrics.f1_score(valid_data[:, -1], predictions, average="weighted")
+            scores.append(f1)
 
         if self.verbose:
             print(individual, f1)
 
-        return f1,
+        score = np.mean(scores)
+
+        return score,
 
     def predict(self, x):
         if self.model is None:
