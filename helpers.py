@@ -1,27 +1,19 @@
-
 import pandas as pd
 import numpy as np
-import pickle
-from timeit import default_timer as timer
-from sklearn import metrics
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.metrics import f1_score
 
-
-def read_data(data_path, class_index="last"):
+def read_data(data_path):
     # Load the data
-    data = pd.read_csv(data_path, header=None)
+    data = pd.read_csv(data_path)
     data = data.replace('?', np.NaN)  # We interpret question marks as missing values
-    data = data.values
 
-    # Most datasets have class as either the first or last column
-    if class_index == "last":
-        dataX = data[:, :-1]
-        dataY = data[:, -1].astype(str)  # Class label is a string
-    else:
-        dataX = data[:, 1:]
-        dataY = data[:, 0].astype(str)  # Class label is a string
+    x = data.drop("class", axis=1)
+    y = data["class"]
+    y = 'class' + y.astype(str)  # In case the class is just say "1", as h2o will try do regression
 
-    dataX = np.asarray(dataX)
-    dataY = np.asarray(dataY).reshape(-1, 1)
+    return x.values, y.values
 
-    return dataX, dataY
+def evaluate(name, preds, real):
+    score = f1_score(real, preds, average="weighted")
+    print(name, "%.3f" % score)
+    return score

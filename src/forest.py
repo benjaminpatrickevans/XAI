@@ -50,8 +50,6 @@ class EvolutionaryForest(EvolutionaryBase):
         return class_probabilities, classes[majority_class_idx]
 
     def _fitness_function(self, individual, train_data):
-        #training_data, valid_data = train_test_split(train_data, test_size=0.2)
-
         kf = KFold(random_state=0)
 
         scores = []
@@ -62,10 +60,10 @@ class EvolutionaryForest(EvolutionaryBase):
             f1 = metrics.f1_score(valid_data[:, -1], predictions, average="weighted")
             scores.append(f1)
 
-        if self.verbose:
-            print(individual, f1)
-
         score = np.mean(scores)
+
+        if self.verbose:
+            print(individual, score)
 
         return score,
 
@@ -75,7 +73,6 @@ class EvolutionaryForest(EvolutionaryBase):
 
         x = np.asarray(x)
         return [self._predict_for_instance(instance, self.train_data, self.model) for instance in x]
-
 
     def predict_majority(self, x):
         if self.models is None:

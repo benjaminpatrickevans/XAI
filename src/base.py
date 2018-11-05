@@ -26,8 +26,8 @@ class EvolutionaryBase(Classifier):
         self._reset_pset()
         self.toolbox = self.create_toolbox(self.pset)
 
-        self.crs_rate = 0.7
-        self.mut_rate = 0.25
+        self.crs_rate = 0.65
+        self.mut_rate = 0.33
 
     def _reset_pset(self):
         self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
@@ -70,19 +70,17 @@ class EvolutionaryBase(Classifier):
 
         return children_outputs[0]
 
-    def numeric_feature_node(self, split, feature_idx, mask, *children):
-        children_outputs = [self._apply_filter(data, feature_idx, partial(condition_check, split))
+    def numeric_feature_node(self, splitting_point, feature_idx, mask, *children):
+        children_outputs = [self._apply_filter(data, feature_idx, partial(condition_check, splitting_point))
                             for condition_check, data in children
-                            if condition_check(split, mask[feature_idx])]
+                            if condition_check(splitting_point, mask[feature_idx])]
 
         if len(children_outputs) > 1:
             raise Exception("Multiple leaves true. They should be mutually exclusive")
 
         return children_outputs[0]
 
-
     def _apply_filter(self, data, feature_index, condition):
-
         # Apply the condition to the feature_index, returning the indices of rows where the condition was met
         filtered_indices = np.where(condition(data[:, feature_index]))
 
