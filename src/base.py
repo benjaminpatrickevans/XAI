@@ -1,5 +1,5 @@
 from deap import gp, algorithms, base, creator, tools
-from src import deapfix
+from src import deapfix, search
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
 import random
@@ -33,10 +33,10 @@ class EvolutionaryBase(Classifier):
         self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
 
     def create_toolbox(self, pset):
-        # Fitness is f1-score. So the larger the better
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-        creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax,
-                       pset=pset)
+        # Multiobjective. Maximising both (larger the better)
+        creator.create('FitnessMulti', base.Fitness, weights=(1.0, 1.0))
+
+        creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMulti, failure_vector=list)
 
         toolbox = base.Toolbox()
         toolbox.register("expr", deapfix.genHalfAndHalf, pset=pset, min_=1, max_=3)
@@ -44,7 +44,8 @@ class EvolutionaryBase(Classifier):
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
         toolbox.register("compile", gp.compile, pset=pset)
 
-        toolbox.register("select", tools.selTournament, tournsize=3)
+        #toolbox.register("select", tools.selTournament, tournsize=3)
+        toolbox.register("select", tools.selNSGA2)
         toolbox.register("mate", gp.cxOnePoint)
         toolbox.register("expr_mut", deapfix.genHalfAndHalf, min_=0, max_=2)
         toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
@@ -193,12 +194,15 @@ class EvolutionaryBase(Classifier):
         stats.register("max", np.max)
         stats.register("std", np.std)
 
-        pop = self.toolbox.population(n=self.max_trees)
+        population_size = self.max_trees
+
+        pop = self.toolbox.population(n=population_size)
 
         hof = tools.HallOfFame(1)  # We only use the best evolved model
 
-        population, logbook = algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate, self.num_generations,
-                                                  stats=stats, halloffame=hof)
+        population, logbook = search.diversity_search(population=pop, toolbox=self.toolbox, mu=population_size,
+                                                      lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
+                                                      ngen=self.num_generations, stats=stats, halloffame=hof)
 
         self.model = hof[0]
         self.models = population  # Final population

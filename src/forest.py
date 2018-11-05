@@ -1,8 +1,4 @@
 from src.base import EvolutionaryBase
-from deap import gp, algorithms, base, creator, tools
-from src import deapfix
-from sklearn.base import ClassifierMixin as Classifier
-from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split, KFold
 from sklearn import metrics
 import numpy as np
@@ -54,18 +50,29 @@ class EvolutionaryForest(EvolutionaryBase):
 
         scores = []
 
+        # We output a failure string for computing diversity. Since diversity is related to the entire population,
+        # this can only be done AFTER computing all the fitness values. This is done in search.diversity_search
+        failure_vector = []
+
         for train_index, test_index in kf.split(train_data):
             training_data, valid_data = train_data[train_index], train_data[test_index]
+            real_labels = valid_data[:, -1]
+
             predictions = [self._predict_for_instance(instance, training_data, individual) for instance in valid_data]
-            f1 = metrics.f1_score(valid_data[:, -1], predictions, average="weighted")
+
+            failures = 1 * np.equal(real_labels, predictions)
+
+            f1 = metrics.f1_score(real_labels, predictions, average="weighted")
             scores.append(f1)
+            failure_vector.extend(failures)
 
         score = np.mean(scores)
+        failure_vector = np.asarray(failure_vector)
 
         if self.verbose:
             print(individual, score)
 
-        return score,
+        return score, failure_vector
 
     def predict(self, x):
         if self.model is None:

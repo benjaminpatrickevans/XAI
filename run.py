@@ -33,7 +33,7 @@ iris last
 def main(data, num_generations, num_trees, fold, seed):
     ###########
     kf = StratifiedKFold(shuffle=True, n_splits=10, random_state=seed)
-    X, y = read_data("data/"+data+".data")
+    X, y = read_data("data/"+data+".csv")
 
     train_index, test_index = list(kf.split(X, y))[fold]
     X_train, X_test = X[train_index], X[test_index]
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     out_dir = "out/%s/" % data
     out_file = out_dir + "results-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
 
-    if os.path.exists(out_file):
+    if False and os.path.exists(out_file):  # TODO: Uncomment when running properly
         print("Have already ran for these settings, exiting early")
     else:
         # Run and save results
