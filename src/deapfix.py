@@ -91,7 +91,7 @@ def generate(pset, min_, max_, condition, type_=None):
 
         # We should add a terminal if we are at the desired height or alternatively if we are at a node that is
         # only available as a terminal
-        if condition(height, depth) or type_.__name__ in ["Mask", "TrainData"] or "SplitPoint" in type_.__name__:
+        if condition(height, depth) or type_.__name__ == "Mask" or "SplitPoint" in type_.__name__:
             try:
                 term = random.choice(pset.terminals[type_])
 
