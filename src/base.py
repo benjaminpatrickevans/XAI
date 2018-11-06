@@ -97,7 +97,7 @@ class EvolutionaryBase(Classifier):
 
         # Add the feature value nodes. These will form the children of the feature_node
         for value in feature_values:
-            feature_output_name = feature_name + "_" + str(value) + "Type"
+            feature_output_name = feature_name + "_" + str(value).strip() + "Type"
 
             # Each feature value needs a special output type to ensure trees have a branch for each category
             feature_value_output_type = type(feature_output_name, (np.ndarray,), {})
@@ -105,24 +105,24 @@ class EvolutionaryBase(Classifier):
             # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
             self.pset.addPrimitive(lambda data, val=value: (partial(eq, val), data),
                                    [train_data_type], feature_value_output_type,
-                                   name=feature_name + "_" + str(value))
+                                   name=feature_name + "_" + str(value).strip())
 
             feature_node_input_types.append(feature_value_output_type)
 
         # Add the feature node, with the categorical inputs from above.
         self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.categorical_feature_node(feature_idx, *xargs),
                                [mask_type, *feature_node_input_types],
-                               train_data_type, name=feature_name)
+                               train_data_type, name="FN_"+feature_name)
 
     def _add_numeric_feature(self, feature_values, feature_index, feature_name):
 
         minimum_feature_value = min(feature_values)
         maximum_feature_value = max(feature_values)
 
-        split_type = type(feature_name+"Split", (float, ), {})  # Splitting point type is just a restricted float
+        split_type = type(feature_name+"SplitPoint", (float, ), {})  # Splitting point type is just a restricted float
 
         # Terminals are random constant in the feature range
-        self.pset.addEphemeralConstant(feature_name+"Split",
+        self.pset.addEphemeralConstant(feature_name+"SplitPoint",
                                        lambda: random.uniform(minimum_feature_value, maximum_feature_value),
                                        split_type)
 
@@ -137,15 +137,14 @@ class EvolutionaryBase(Classifier):
 
             self.pset.addPrimitive(lambda data, op=split_operator: (op, data),
                                    [train_data_type], feature_value_output_type,
-                                   name=feature_name + "_" + split_operator.__name__ + split_operator.__name__)
+                                   name=feature_name + "_" + split_operator.__name__)
 
             feature_node_input_types.append(feature_value_output_type)
 
         self.pset.addPrimitive(lambda split, mask, *xargs, feature_idx=feature_index:
                                self.numeric_feature_node(split, feature_idx, mask, *xargs),
                                [split_type, mask_type, *feature_node_input_types],
-                               train_data_type, name=feature_name+split_operator.__name__)
-
+                               train_data_type, name="FN_"+feature_name+split_operator.__name__)
 
     def _add_functions_and_terminals(self, x):
 
@@ -157,13 +156,10 @@ class EvolutionaryBase(Classifier):
             feature_values = set(x[:, feature_index])
             feature_type = type(next(iter(feature_values)))
 
-            print(feature_values, feature_type)
-
             if feature_type == str:
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
             else:
                 self._add_numeric_feature(feature_values, feature_index, feature_name)
-
 
     def fit(self, x, y):
         # Ensure we use numpy arrays

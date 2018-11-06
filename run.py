@@ -48,6 +48,7 @@ def main(data, num_generations, num_trees, fold, seed):
     h2_test = h2o.H2OFrame(python_obj=full_test)
 
     ##########
+    '''
 
     dt = H2ORandomForestEstimator(ntrees=1, sample_rate =1, mtries=num_features) # Setup RF like a decision tree
     dt.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
@@ -63,6 +64,7 @@ def main(data, num_generations, num_trees, fold, seed):
     xt.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
     xt_preds = xt.predict(h2_test)["predict"].as_data_frame().values
     xt_score = evaluate("Extremely Randomized", xt_preds, y_test)
+    '''
 
     evoTree = EvolutionaryForest(max_trees=num_trees, num_generations=num_generations)
     evoTree.fit(X_train, y_train)
@@ -96,7 +98,7 @@ if __name__ == "__main__":
     seed = int(sys.argv[5])
 
     out_dir = "out/%s/" % data
-    out_file = out_dir + "results-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
+    out_file = out_dir + "results-multi-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
 
     if False and os.path.exists(out_file):  # TODO: Uncomment when running properly
         print("Have already ran for these settings, exiting early")

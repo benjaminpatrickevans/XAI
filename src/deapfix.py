@@ -62,6 +62,13 @@ def generate(pset, min_, max_, condition, type_=None):
     from the root to the leaves, and it stop growing when the
     condition is fulfilled.
 
+    This differs from the original generate function in
+    three ways. If we try add a terminal and none is available, it
+    adds a primtive instead. Likewise, some nodes are only available as terminals
+    so do not try add primitives in these cases. Finally, each tree
+    should only have one of each feature node type. So this is ensured
+    while generating new trees.
+
     :param pset: Primitive set from which primitives are selected.
     :param min_: Minimum height of the produced trees.
     :param max_: Maximum Height of the produced trees.
@@ -84,7 +91,7 @@ def generate(pset, min_, max_, condition, type_=None):
 
         # We should add a terminal if we are at the desired height or alternatively if we are at a node that is
         # only available as a terminal
-        if condition(height, depth) or type_.__name__ == "Mask" or "Split" in type_.__name__:
+        if condition(height, depth) or type_.__name__ in ["Mask", "TrainData"] or "SplitPoint" in type_.__name__:
             try:
                 term = random.choice(pset.terminals[type_])
 
@@ -92,24 +99,37 @@ def generate(pset, min_, max_, condition, type_=None):
                     term = term()
                 expr.append(term)
             except IndexError:
-
                 # If we try add a terminal but none are found, add a primitive instead
                 add_primitive(pset, type_, expr, stack, depth)
 
         else:
-            add_primitive(pset, type_, expr, stack, depth)
+            success = add_primitive(pset, type_, expr, stack, depth)
+
+            if not success:
+                print("No options", type_)
+                # Then just end the tree now by setting the depth to be the max height
+                stack.append((height, type_))
 
     return expr
 
 
 def add_primitive(pset, type_, expr, stack, depth):
-    try:
-        prim = random.choice(pset.primitives[type_])
-    except IndexError:
-        _, _, traceback = sys.exc_info()
-        raise IndexError("The gp.generate function tried to add " \
-                         "a primitive of type '%s', but there is " \
-                         "none available." % (type_,)).with_traceback(traceback)
+    all_nodes = pset.primitives[type_]
+
+    # We need to ensure each feature node only occurs once
+    existing_nodes = set([node.name for node in expr if node.name.startswith("FN_")])
+
+    # Exclude the nodes that already exist in the expr
+    options = [node for node in all_nodes if node.name not in existing_nodes]
+
+    if not options:
+        return False
+
+    prim = random.choice(options)
+
     expr.append(prim)
     for arg in reversed(prim.args):
         stack.append((depth + 1, arg))
+
+    return True
+
