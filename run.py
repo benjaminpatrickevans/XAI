@@ -72,6 +72,11 @@ def main(data, num_generations, num_trees, fold, seed):
     evo_forest_score = evaluate("Evolutionary Forest (Majority)", ensemble_preds, y_test)
     evo_weighted_forest_score = evaluate("Evolutionary Forest (Weighted Majority)", weighted_ensemble_preds, y_test)
 
+    params = [num_generations, num_trees, seed, fold]
+    params = [str(v) for v in params]
+
+    evoTree.plot("out/"+data+"/"+"-".join(params))
+
     results = [dt_score, rf_score, xt_score, evo_score, evo_forest_score, evo_weighted_forest_score]
     print("Results", ['%.3f' % elem for elem in results])
     return results

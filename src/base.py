@@ -1,4 +1,4 @@
-from deap import gp, algorithms, base, creator, tools
+from deap import gp, base, creator, tools
 from src import deapfix, search
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
@@ -7,6 +7,9 @@ import numpy as np
 import operator
 from operator import eq
 from functools import partial
+import pygraphviz as pgv
+import numbers
+import os
 
 # The training data is just an ndarray
 train_data_type = type("TrainData", (np.ndarray, ), {})
@@ -31,6 +34,8 @@ class EvolutionaryBase(Classifier):
 
     def _reset_pset(self):
         self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
+
+        self.pset.renameArguments(ARG0="Mask", ARG1="TrainData")
 
     def create_toolbox(self, pset):
         # Multiobjective. Maximising both (larger the better)
@@ -160,6 +165,56 @@ class EvolutionaryBase(Classifier):
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
             else:
                 self._add_numeric_feature(feature_values, feature_index, feature_name)
+
+    def _plot_model(self, expr, file_name):
+        nodes, edges, labels = gp.graph(expr)
+
+        # For simpler graphs we want to ignore masks and training data
+        ignore_indices = [idx for idx in labels if labels[idx] == "Mask" or labels[idx] == "TrainData"]
+
+        # Remove the nodes and edges that point to any mask
+        nodes = [node for node in nodes if node not in ignore_indices]
+        edges = [edge for edge in edges if edge[0] not in ignore_indices and edge[1] not in ignore_indices]
+
+        g = pgv.AGraph(outputorder="edgesfirst")
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
+        g.layout(prog="dot")
+
+        for i in nodes:
+            n = g.get_node(i)
+            label = labels[i]
+
+            if isinstance(label, numbers.Number):
+                label = round(label, 2)
+
+            label = str(label)
+
+            # The child nodes indicate if a feature node was true or false
+            if label.endswith("_le"):
+                label = "False"
+            elif label.endswith("_gt"):
+                label = "True"
+            elif label.startswith("FN_"):
+                # Do some pretty formatting
+                text = label.replace("FN_", "")
+                text = text.replace("Feature", "Feature ")
+                text = text.replace("gt", " > ")
+                label = text
+
+            n.attr["label"] = label
+            n.attr["fillcolor"] = "white"
+            n.attr["style"] = "filled"
+
+        g.draw(file_name)
+
+    def plot(self, out_folder):
+
+        if not os.path.exists(out_folder):
+            os.makedirs(out_folder)
+
+        for idx, model in enumerate(self.models):
+            self._plot_model(model, out_folder + "/" + str(idx) + ".pdf")
 
     def fit(self, x, y):
         # Ensure we use numpy arrays
