@@ -239,11 +239,14 @@ class EvolutionaryBase(Classifier):
 
         self._add_functions_and_terminals(x)
 
+        def round_out(fn, x, axis=0):
+            return np.round(fn(x, axis=axis), 3)
+
         stats = tools.Statistics(lambda ind: ind.fitness.values)
-        stats.register("min", np.min)
-        stats.register("avg", np.mean)
-        stats.register("max", np.max)
-        stats.register("std", np.std)
+        stats.register("min", partial(round_out, np.min))
+        stats.register("mean", partial(round_out, np.mean))
+        stats.register("max", partial(round_out, np.max))
+        stats.register("std", partial(round_out, np.std))
 
         population_size = self.max_trees
 
