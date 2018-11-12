@@ -9,27 +9,6 @@ from h2o.estimators.random_forest import H2ORandomForestEstimator
 import h2o
 h2o.init()
 
-'''
-breast-cancer first
-congress first
-contraceptive last
-dresses last
-german last
-haberman last
-planning last
-post-operative last
-primary-tumor first
-spect first
-statlog-aus last
-swiss last
-thoracic last
-titanic last * changed for this, used to be first
-va last
-wpbc last
-iris last
-'''
-
-
 def main(data, num_generations, num_trees, fold, seed):
     ###########
     kf = StratifiedKFold(shuffle=True, n_splits=10, random_state=seed)
@@ -67,17 +46,15 @@ def main(data, num_generations, num_trees, fold, seed):
     evoTree.fit(X_train, y_train)
     preds = evoTree.predict(X_test)
     ensemble_preds = evoTree.predict_majority(X_test)
-    weighted_ensemble_preds = evoTree.predict_weighted_majority(X_test)
     evo_score = evaluate("Evolutionary Tree", preds, y_test)
     evo_forest_score = evaluate("Evolutionary Forest (Majority)", ensemble_preds, y_test)
-    evo_weighted_forest_score = evaluate("Evolutionary Forest (Weighted Majority)", weighted_ensemble_preds, y_test)
 
     params = [num_generations, num_trees, seed, fold]
     params = [str(v) for v in params]
 
     evoTree.plot("out/"+data+"/"+"-".join(params))
 
-    results = [dt_score, rf_score, xt_score, evo_score, evo_forest_score, evo_weighted_forest_score]
+    results = [dt_score, rf_score, xt_score, evo_score, evo_forest_score]
     print("Results", ['%.3f' % elem for elem in results])
     return results
 

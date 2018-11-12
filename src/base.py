@@ -10,6 +10,7 @@ from functools import partial
 import pygraphviz as pgv
 import numbers
 import os
+import re
 
 # The training data is just an ndarray
 train_data_type = type("TrainData", (np.ndarray, ), {})
@@ -59,15 +60,15 @@ class EvolutionaryBase(Classifier):
 
         return toolbox
 
-    def categorical_feature_node(self, feature_idx, mask, *children):
+    def _categorical_feature_node(self, feature_idx, mask, *children):
         """
-            A feature node checks the output of its children, and
+            A categorical node checks the output of its children, and
             returns the one which matches the specified mask.
-
+        :param feature_idx:
+        :param mask:
         :param children:
         :return:
         """
-
         children_outputs = [self._apply_filter(data, feature_idx, condition_check) for condition_check, data in children
                             if condition_check(mask[feature_idx])]
 
@@ -76,7 +77,7 @@ class EvolutionaryBase(Classifier):
 
         return children_outputs[0]
 
-    def numeric_feature_node(self, splitting_point, feature_idx, mask, *children):
+    def _numeric_feature_node(self, splitting_point, feature_idx, mask, *children):
         children_outputs = [self._apply_filter(data, feature_idx, partial(condition_check, splitting_point))
                             for condition_check, data in children
                             if condition_check(splitting_point, mask[feature_idx])]
@@ -85,6 +86,7 @@ class EvolutionaryBase(Classifier):
             raise Exception("Multiple leaves true. They should be mutually exclusive")
 
         return children_outputs[0]
+
 
     def _apply_filter(self, data, feature_index, condition):
         # Apply the condition to the feature_index, returning the indices of rows where the condition was met
@@ -96,13 +98,25 @@ class EvolutionaryBase(Classifier):
         return filtered_data
 
     def _add_categorical_feature(self, feature_values, feature_index, feature_name):
+        """
+            Adds a categorical node into the tree. The categorical node takes
+            each of the possible categories as children, meaning a branch is constructed
+            for each category. No categorical binning is implemented.
+
+        :param feature_values: The possible categories
+        :param feature_index: The column index for the feature in the original data so we can access the values
+        :param feature_name:
+        :return:
+        """
 
         # For strongly-typed GP we need to make a custom type for each value to preserve correct structure
         feature_node_input_types = []
 
         # Add the feature value nodes. These will form the children of the feature_node
         for value in feature_values:
-            feature_output_name = feature_name + "_" + str(value).strip() + "Type"
+            # TODO: Better regex?
+            clean_value_name = re.sub("\.|-|,| ", "", str(value))  # Remove white space, full stops, commas and spaces
+            feature_output_name = feature_name + "_" + clean_value_name + "Type"
 
             # Each feature value needs a special output type to ensure trees have a branch for each category
             feature_value_output_type = type(feature_output_name, (np.ndarray,), {})
@@ -110,16 +124,27 @@ class EvolutionaryBase(Classifier):
             # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
             self.pset.addPrimitive(lambda data, val=value: (partial(eq, val), data),
                                    [train_data_type], feature_value_output_type,
-                                   name=feature_name + "_" + str(value).strip())
+                                   name=feature_name + "_" + clean_value_name)
 
             feature_node_input_types.append(feature_value_output_type)
 
         # Add the feature node, with the categorical inputs from above.
-        self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self.categorical_feature_node(feature_idx, *xargs),
+        self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self._categorical_feature_node(feature_idx, *xargs),
                                [mask_type, *feature_node_input_types],
                                train_data_type, name="FN_"+feature_name)
 
     def _add_numeric_feature(self, feature_values, feature_index, feature_name):
+        """
+            Adds a binary splitting node for a numeric feature. The split criteria is just less than or
+            equal to a a splitting point. The splitting point is a random value from the range of the feature.
+            Less than or equal is used to split as this creates one branch for less than or equal, and another for
+            greater than (i.e. a binary split).
+
+        :param feature_values: The possible numeric values
+        :param feature_index:  The column index for the feature in the original data so we can access the values
+        :param feature_name:
+        :return:
+        """
 
         minimum_feature_value = min(feature_values)
         maximum_feature_value = max(feature_values)
@@ -147,7 +172,7 @@ class EvolutionaryBase(Classifier):
             feature_node_input_types.append(feature_value_output_type)
 
         self.pset.addPrimitive(lambda split, mask, *xargs, feature_idx=feature_index:
-                               self.numeric_feature_node(split, feature_idx, mask, *xargs),
+                               self._numeric_feature_node(split, feature_idx, mask, *xargs),
                                [split_type, mask_type, *feature_node_input_types],
                                train_data_type, name="FN_"+feature_name+split_operator.__name__)
 

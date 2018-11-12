@@ -106,8 +106,7 @@ def generate(pset, min_, max_, condition, type_=None):
             success = add_primitive(pset, type_, expr, stack, depth)
 
             if not success:
-                print("No options", type_)
-                # Then just end the tree now by setting the depth to be the max height
+                # Then just end the tree creation by setting the depth to be the max height
                 stack.append((height, type_))
 
     return expr
