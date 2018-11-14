@@ -87,7 +87,6 @@ class EvolutionaryBase(Classifier):
 
         return children_outputs[0]
 
-
     def _apply_filter(self, data, feature_index, condition):
         # Apply the condition to the feature_index, returning the indices of rows where the condition was met
         filtered_indices = np.where(condition(data[:, feature_index]))
@@ -176,9 +175,70 @@ class EvolutionaryBase(Classifier):
                                [split_type, mask_type, *feature_node_input_types],
                                train_data_type, name="FN_"+feature_name+split_operator.__name__)
 
+
+    def _add_constructed_features(self, feature_indices):
+        """
+            Constructed features can be any combination of the original
+            numeric features. i.e. f1 * f2 + f3. The splitting point is always <= 0.
+            This allows many operators such as f1 < f2, i.e. by f1 - f2 <= 0?
+            Random integer terminals can also used so the boundary is essentially flexible.
+        :return:
+        """
+
+        # The constructed is just a column in an ndarray, we wrap this type for the constraints in STGP
+        constructed_type = type("ConstructedFeature", (np.ndarray, ), {})
+
+        def retrieve_feature(index):
+            # Return a function which takes some data and gives you the data at the feature index
+            return lambda data: data[:, index]
+
+        for feature in feature_indices:
+            # Note even though retrieve_feature doesnt actually return a constructed_type, we can treat it as such.
+            # It actually returns a function which returns a constructed_type, this is what we do throughout since
+            # the tree should be traversed from the root not from the leaves
+            self.pset.addPrimitive(lambda ind=feature: retrieve_feature(ind), [], constructed_type,
+                                   name="Feature"+str(feature))
+
+        # Combination operators take 2 ndarrays and perform a mathematical function (i.e. add) on them.
+        def divide(left, right):
+            # Divide by zero return 0 instead of crashing
+            return np.divide(left, right, out=np.zeros_like(left), where=right != 0)
+
+        combination_operators = [np.add, np.multiply, np.subtract, divide]
+
+        def combination_fn(l, r, op):
+            # Return a function which takes in data and applies the operator to the children. Note this will
+            # recurse when l and r contain combination operators themselves.
+            return lambda data: op(l(data), r(data))
+
+        # Add each of the combination operators
+        for operation in combination_operators:
+            self.pset.addPrimitive(lambda l, r, op=operation: combination_fn(l, r, op),
+                                   [constructed_type, constructed_type],  # Takes in two values
+                                   constructed_type,  # Outputs a single value
+                                   name=operation.__name__)
+
+        # We need to filter the constructed feature to be >=0, to do this we need to compare the new feature
+        # with the original training data, and filter that data accordingly
+        def constructed_feature(construct, mask, train):
+            mask = mask.reshape(1, -1)  # Even though this is 1d, we want to treat as 2d so all operators can be uniform
+            res = construct(mask)  # Construct the feature for the mask/input vector
+            constructed = construct(train)  # Construct the feature for all the training data
+            condition_met = constructed >= 0  # Retrieve the training rows where the constructed val is greater than 0
+
+            # Now since the indices are the same, we can use this to access our original train data and filter
+            # based on the mask. Once we have filtered the data, we no longer require the constructed feature.
+            return train[np.where(condition_met)] if res >= 0 else train[np.where(~condition_met)]
+
+        self.pset.addPrimitive(constructed_feature, [constructed_type, mask_type, train_data_type],
+                               train_data_type,
+                               name="ConstructedFilter")
+
     def _add_functions_and_terminals(self, x):
 
         num_instances, num_features = x.shape
+
+        numeric_features = []
 
         for feature_index in range(num_features):
             feature_name = "Feature"+str(feature_index)
@@ -190,6 +250,9 @@ class EvolutionaryBase(Classifier):
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
             else:
                 self._add_numeric_feature(feature_values, feature_index, feature_name)
+                numeric_features.append(feature_index)
+
+        self._add_constructed_features(numeric_features)
 
     def _plot_model(self, expr, file_name):
         nodes, edges, labels = gp.graph(expr)
