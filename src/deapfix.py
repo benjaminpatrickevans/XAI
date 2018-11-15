@@ -100,7 +100,15 @@ def generate(pset, min_, max_, condition, type_=None):
                 expr.append(term)
             except IndexError:
                 # If we try add a terminal but none are found, add a primitive instead
-                add_primitive(pset, type_, expr, stack, depth)
+                force_prefix = None
+
+                # If we try add a constructed feature but we are at the termination criteria, we should
+                # only add a feature, not another combiner node!
+                if type_.__name__ == "ConstructedFeature":
+                    force_prefix = "Feature"
+
+                # Add a primitive, giving the optional type (force_prefix)
+                add_primitive(pset, type_, expr, stack, depth, force_prefix)
 
         else:
             success = add_primitive(pset, type_, expr, stack, depth)
@@ -112,7 +120,7 @@ def generate(pset, min_, max_, condition, type_=None):
     return expr
 
 
-def add_primitive(pset, type_, expr, stack, depth):
+def add_primitive(pset, type_, expr, stack, depth, force_prefix=None):
     all_nodes = pset.primitives[type_]
 
     # We need to ensure each feature node only occurs once
@@ -120,6 +128,10 @@ def add_primitive(pset, type_, expr, stack, depth):
 
     # Exclude the nodes that already exist in the expr
     options = [node for node in all_nodes if node.name not in existing_nodes]
+
+    if force_prefix:
+        # Then we need to exclude the other options
+        options = [node for node in options if node.name.startswith(force_prefix)]
 
     if not options:
         return False

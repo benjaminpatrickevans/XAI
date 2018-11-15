@@ -199,6 +199,8 @@ class EvolutionaryBase(Classifier):
             self.pset.addPrimitive(lambda ind=feature: retrieve_feature(ind), [], constructed_type,
                                    name="Feature"+str(feature))
 
+
+
         # Combination operators take 2 ndarrays and perform a mathematical function (i.e. add) on them.
         def divide(left, right):
             # Divide by zero return 0 instead of crashing
@@ -314,9 +316,10 @@ class EvolutionaryBase(Classifier):
         # limit it. If a tree height is > num features, by definition duplicates must appear which we want to
         # minimise
 
-        print("Max depth was:", self.max_depth)
-        self.max_depth = min(self.max_depth, num_features)
-        print("Max depth changed to the max number of features:", self.max_depth)
+        #print("Max depth was:", self.max_depth)
+        #self.max_depth = min(self.max_depth, num_features)
+        #print("Max depth changed to the max number of features:", self.max_depth)
+
         self.toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
         self.toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
 
