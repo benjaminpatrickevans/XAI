@@ -11,6 +11,7 @@ import pygraphviz as pgv
 import numbers
 import os
 import re
+from sklearn import metrics
 
 # The training data is just an ndarray
 train_data_type = type("TrainData", (np.ndarray, ), {})
@@ -55,6 +56,9 @@ class EvolutionaryBase(Classifier):
         toolbox.register("mate", gp.cxOnePoint)
         toolbox.register("expr_mut", deapfix.genHalfAndHalf, min_=0, max_=2)
         toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
+
+        toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
+        toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
 
         # Fitness function added in .fit as we need the data
 
@@ -306,25 +310,54 @@ class EvolutionaryBase(Classifier):
         for idx, model in enumerate(self.models):
             self._plot_model(model, out_folder + "/" + str(idx) + ".pdf")
 
+    def ensemble_selection(self, data, members):
+        labels = data[:, -1]
+
+        # Return the f1 score adding the potential member to ensemble would yield
+        def compute_goodness(existing_ensemble, potential_member):
+            preds = self._soft_voting(data[:, :-1], existing_ensemble + [potential_member])
+            score = metrics.f1_score(labels, preds, average="weighted")
+            return score
+
+        ensemble = []
+
+        best_length = 0
+        best_score = 0
+
+        while len(ensemble) < self.max_trees:
+            # We want to compute how good each member is for the current ensemble
+            fn = partial(compute_goodness, ensemble)
+
+            # Find the member which maximises the f1 score of the overall ensemble
+            best_addition = max(members, key=fn)
+            ensemble.append(best_addition)
+
+            # Store the best ensemble size we find
+            ensemble_preds = self._soft_voting(data[:, :-1], ensemble)
+            score = metrics.f1_score(labels, ensemble_preds, average="weighted")
+
+            if score > best_score:
+                best_score = score
+                best_length = len(ensemble)
+
+        return ensemble[:best_length]
+
+
     def fit(self, x, y):
-        # Ensure we use numpy arrays
+        # Ensure we use numpy arrays. Shuffle as well to be safe
         x, y = shuffle(np.asarray(x), np.asarray(y))
 
         num_instances, num_features = x.shape
 
-        # We should never exceed the user specified height of trees, however, if this height is too large we should
-        # limit it. If a tree height is > num features, by definition duplicates must appear which we want to
-        # minimise
-
-        #print("Max depth was:", self.max_depth)
-        #self.max_depth = min(self.max_depth, num_features)
-        #print("Max depth changed to the max number of features:", self.max_depth)
-
-        self.toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
-        self.toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
-
         # Combine to make it easier for processing
-        train_data = np.hstack((x, y))
+        all_train_data = np.hstack((x, y))
+
+        length = all_train_data.shape[0]
+        train_size = int(length * 0.2)
+
+        # Split into train and a leave out validation for ensemble construction
+        train_data = all_train_data[:train_size]
+        valid_data = all_train_data[train_size:]
 
         self.toolbox.register("evaluate", self._fitness_function, train_data=train_data)
 
@@ -349,8 +382,12 @@ class EvolutionaryBase(Classifier):
                                                       lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
                                                       ngen=self.num_generations, stats=stats, halloffame=hof)
 
+        # Now we want to use all the train data, so at test time the models are more robust
+        self.train_data = all_train_data
+
         self.model = hof[0]
         self.models = population  # Final population
 
-        # TODO: Can we avoid this?
-        self.train_data = train_data
+        # Construct an ensemble that maximises performance on the given leave out valid set
+        self.greedy_ensemble = self.ensemble_selection(valid_data, self.models)
+

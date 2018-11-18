@@ -85,16 +85,24 @@ class EvolutionaryForest(EvolutionaryBase):
         if self.models is None:
             raise Exception("You must call fit before predict!")
 
-        return self._soft_voting(x)
+        return self._soft_voting(x, self.models)
 
     def predict_weighted_majority(self, x):
         if self.models is None:
             raise Exception("You must call fit before predict!")
 
         weights = [model.fitness.values[0] for model in self.models]
-        return self._soft_voting(x, weights)
+        return self._soft_voting(x, self.models, weights)
 
-    def _soft_voting(self, x, weights=None):
+
+    def predict_greedy(self, x):
+        if self.greedy_ensemble is None:
+            raise Exception("You must call fit before predict!")
+
+        return self._soft_voting(x, self.greedy_ensemble)
+
+
+    def _soft_voting(self, x, members, weights=None):
 
         x = np.asarray(x)
         predictions = []
@@ -103,7 +111,7 @@ class EvolutionaryForest(EvolutionaryBase):
 
         for instance in x:
             class_probabilities = [self._predict_probabilities(model, instance, self.train_data)[0]
-                                   for model in self.models]  # The predicted probability vector from each model
+                                   for model in members]  # The predicted probability vector from each model
 
             # Average across the models
             average_class_probability = np.average(class_probabilities, axis=0, weights=weights)
