@@ -31,8 +31,8 @@ class EvolutionaryBase(Classifier):
         self._reset_pset()
         self.toolbox = self.create_toolbox(self.pset)
 
-        self.crs_rate = 0.65
-        self.mut_rate = 0.33
+        self.crs_rate = 0.7
+        self.mut_rate = 0.18
 
     def _reset_pset(self):
         self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
@@ -336,6 +336,8 @@ class EvolutionaryBase(Classifier):
             ensemble_preds = self._soft_voting(data[:, :-1], ensemble)
             score = metrics.f1_score(labels, ensemble_preds, average="weighted")
 
+            print(len(ensemble))
+
             if score > best_score:
                 best_score = score
                 best_length = len(ensemble)
@@ -389,5 +391,5 @@ class EvolutionaryBase(Classifier):
         self.models = population  # Final population
 
         # Construct an ensemble that maximises performance on the given leave out valid set
-        self.greedy_ensemble = self.ensemble_selection(valid_data, self.models)
+        #self.greedy_ensemble = self.ensemble_selection(valid_data, self.models)
 

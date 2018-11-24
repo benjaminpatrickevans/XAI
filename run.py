@@ -46,17 +46,16 @@ def main(data, num_generations, num_trees, fold, seed):
     evoTree.fit(X_train, y_train)
     preds = evoTree.predict(X_test)
     ensemble_preds = evoTree.predict_majority(X_test)
-    greedy_preds = evoTree.predict_greedy(X_test)
+    #greedy_preds = evoTree.predict_greedy(X_test)
     evo_score = evaluate("Evolutionary Tree", preds, y_test)
     evo_forest_score = evaluate("Evolutionary Forest (Majority)", ensemble_preds, y_test)
-    evo_greedy_forest_score = evaluate("Evolutionary Forest (Greedy)", greedy_preds, y_test)
+    #evo_greedy_forest_score = evaluate("Evolutionary Forest (Greedy)", greedy_preds, y_test)
 
     params = [num_generations, num_trees, seed, fold]
     params = [str(v) for v in params]
+    #evoTree.plot("out/"+data+"/"+"-".join(params))
 
-    evoTree.plot("out/"+data+"/"+"-".join(params))
-
-    results = [dt_score, rf_score, xt_score, evo_score, evo_forest_score, evo_greedy_forest_score]
+    results = [dt_score, rf_score, xt_score, evo_score, evo_forest_score]
     print("Results", ['%.3f' % elem for elem in results])
     return results
 
