@@ -4,9 +4,9 @@ from sklearn import metrics
 import numpy as np
 
 
-class EvolutionaryForest(EvolutionaryBase):
+class GP(EvolutionaryBase):
 
-    def __init__(self, max_trees=10, max_depth=10, num_generations=50, verbose=0):
+    def __init__(self, max_trees=10, max_depth=6, num_generations=50, verbose=0):
         super().__init__(max_trees, max_depth, num_generations, verbose)
 
     def _predict_for_instance(self, instance, training_data, individual):
@@ -60,19 +60,16 @@ class EvolutionaryForest(EvolutionaryBase):
 
             predictions = [self._predict_for_instance(instance, training_data, individual) for instance in valid_data]
 
-            failures = 1 * np.equal(real_labels, predictions)
-
             f1 = metrics.f1_score(real_labels, predictions, average="weighted")
             scores.append(f1)
-            failure_vector.extend(failures)
 
         score = np.mean(scores)
-        failure_vector = np.asarray(failure_vector)
+        height = individual.height / 6
 
         if self.verbose:
-            print(individual, score)
+            print(individual, score, height)
 
-        return score, failure_vector
+        return score, height
 
     def predict(self, x):
         if self.model is None:
@@ -80,47 +77,3 @@ class EvolutionaryForest(EvolutionaryBase):
 
         x = np.asarray(x)
         return [self._predict_for_instance(instance, self.train_data, self.model) for instance in x]
-
-    def predict_majority(self, x):
-        if self.models is None:
-            raise Exception("You must call fit before predict!")
-
-        return self._soft_voting(x, self.models)
-
-    def predict_weighted_majority(self, x):
-        if self.models is None:
-            raise Exception("You must call fit before predict!")
-
-        weights = [model.fitness.values[0] for model in self.models]
-        return self._soft_voting(x, self.models, weights)
-
-
-    def predict_greedy(self, x):
-        if self.greedy_ensemble is None:
-            raise Exception("You must call fit before predict!")
-
-        return self._soft_voting(x, self.greedy_ensemble)
-
-
-    def _soft_voting(self, x, members, weights=None):
-
-        x = np.asarray(x)
-        predictions = []
-
-        all_classes = np.unique(self.train_data[:, -1])
-
-        for instance in x:
-            class_probabilities = [self._predict_probabilities(model, instance, self.train_data)[0]
-                                   for model in members]  # The predicted probability vector from each model
-
-            # Average across the models
-            average_class_probability = np.average(class_probabilities, axis=0, weights=weights)
-
-            # Choose the class with highest average
-            prediction = all_classes[np.argmax(average_class_probability)]
-
-            predictions.append(prediction)
-
-        return predictions
-
-

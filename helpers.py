@@ -14,9 +14,3 @@ def read_data(data_path):
     y = np.reshape(y.values, (-1, 1))  # Flatten the y so its shape (len, 1)
 
     return x, y
-
-
-def evaluate(name, preds, real):
-    score = f1_score(real, preds, average="weighted")
-    print(name, "%.3f" % score)
-    return score

@@ -40,8 +40,8 @@ class EvolutionaryBase(Classifier):
         self.pset.renameArguments(ARG0="Mask", ARG1="TrainData")
 
     def create_toolbox(self, pset):
-        # Multiobjective. Maximising both (larger the better)
-        creator.create('FitnessMulti', base.Fitness, weights=(1.0, 1.0))
+        # Multiobjective. Maximising score, minimising height
+        creator.create('FitnessMulti', base.Fitness, weights=(1.0, -1.0))
 
         creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMulti, failure_vector=list)
 
@@ -260,8 +260,16 @@ class EvolutionaryBase(Classifier):
 
         self._add_constructed_features(numeric_features)
 
-    def _plot_model(self, expr, file_name):
-        nodes, edges, labels = gp.graph(expr)
+    def plot(self, file_name):
+        if self.model is None:
+            raise Exception("You must call fit before plot!")
+
+        file_dir = "/".join(file_name.split("/")[:-1]) # Extract the directory from the file name
+
+        if not os.path.exists(file_dir):
+            os.makedirs(file_dir)
+
+        nodes, edges, labels = gp.graph(self.model)
 
         # For simpler graphs we want to ignore masks and training data
         ignore_indices = [idx for idx in labels if labels[idx] == "Mask" or labels[idx] == "TrainData"]
@@ -301,14 +309,6 @@ class EvolutionaryBase(Classifier):
             n.attr["style"] = "filled"
 
         g.draw(file_name)
-
-    def plot(self, out_folder):
-
-        if not os.path.exists(out_folder):
-            os.makedirs(out_folder)
-
-        for idx, model in enumerate(self.models):
-            self._plot_model(model, out_folder + "/" + str(idx) + ".pdf")
 
     def ensemble_selection(self, data, members):
         labels = data[:, -1]

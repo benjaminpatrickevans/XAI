@@ -1,7 +1,8 @@
-from helpers import read_data, evaluate
-from src.forest import EvolutionaryForest
+from helpers import read_data
+from src.xai import GP
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score, f1_score
 import sys
 import pickle
 import os
@@ -9,7 +10,7 @@ from h2o.estimators.random_forest import H2ORandomForestEstimator
 import h2o
 h2o.init()
 
-def main(data, num_generations, num_trees, fold, seed):
+def main(data, num_generations, num_trees, fold, seed, model_file):
     ###########
     kf = StratifiedKFold(shuffle=True, n_splits=10, random_state=seed)
     X, y = read_data("data/"+data+".csv")
@@ -26,41 +27,37 @@ def main(data, num_generations, num_trees, fold, seed):
     h2_train = h2o.H2OFrame(python_obj=full_train)
     h2_test = h2o.H2OFrame(python_obj=full_test)
 
-    ##########
-    dt = H2ORandomForestEstimator(ntrees=1, sample_rate =1, mtries=num_features) # Setup RF like a decision tree
-    dt.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
-    dt_preds = dt.predict(h2_test)["predict"].as_data_frame().values
-    dt_score = evaluate("Decision Tree", dt_preds, y_test)
+    model = H2ORandomForestEstimator(ntrees=num_trees)
 
-    rf = H2ORandomForestEstimator(ntrees=num_trees)
-    rf.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
-    rf_preds = rf.predict(h2_test)["predict"].as_data_frame().values
-    rf_score = evaluate("Random Forest", rf_preds, y_test)
+    model.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
 
-    xt = H2ORandomForestEstimator(ntrees=num_trees, histogram_type="Random")
-    xt.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
-    xt_preds = xt.predict(h2_test)["predict"].as_data_frame().values
-    xt_score = evaluate("Extremely Randomized", xt_preds, y_test)
+    # We use the predictions from the model as the new "labels" for training GP. Important to not touch test
+    # yet to avoid any bias
+    blackbox_train_predictions = model.predict(h2_train)["predict"].as_data_frame().values
+    blackbox_train_score = f1_score(blackbox_train_predictions, y_train, average="weighted")
 
-    evoTree = EvolutionaryForest(max_trees=num_trees, num_generations=num_generations)
-    evoTree.fit(X_train, y_train)
-    preds = evoTree.predict(X_test)
-    ensemble_preds = evoTree.predict_majority(X_test)
-    #greedy_preds = evoTree.predict_greedy(X_test)
-    evo_score = evaluate("Evolutionary Tree", preds, y_test)
-    evo_forest_score = evaluate("Evolutionary Forest (Majority)", ensemble_preds, y_test)
-    #evo_greedy_forest_score = evaluate("Evolutionary Forest (Greedy)", greedy_preds, y_test)
+    evoTree = GP(max_trees=num_trees, num_generations=num_generations)
+    evoTree.fit(X_train, blackbox_train_predictions)
+    training_recreations = evoTree.predict(X_train)
+    training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
 
-    params = [num_generations, num_trees, seed, fold]
-    params = [str(v) for v in params]
-    #evoTree.plot("out/"+data+"/"+"-".join(params))
+    print("The random forest achieved", "%.2f" % blackbox_train_score, "on the train set")
+    print("Now training GP on these predictions")
+    print("GP was able to recreate", training_recreating_pct, "% of them")
 
-    results = [dt_score, rf_score, xt_score, evo_score, evo_forest_score]
-    print("Results", ['%.3f' % elem for elem in results])
-    return results
+    blackbox_test_predictions = model.predict(h2_test)["predict"].as_data_frame().values
+    blackbox_test_score = f1_score(blackbox_test_predictions, y_test, average="weighted")
+    testing_recreations = evoTree.predict(X_test)
+    testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
+
+    print("On the test set, the RF achieved %.2f" % blackbox_test_score)
+    print("And the new model was able to recreate", testing_recreating_pct, "% of them")
+    evoTree.plot(model_file)
+
+    return [blackbox_train_score, training_recreating_pct, blackbox_test_score, testing_recreating_pct]
 
 
-def save_to_file(res, out_dir, out_file):
+def save_results_to_file(res, out_dir, out_file):
     # Make the subdirectory
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -78,11 +75,13 @@ if __name__ == "__main__":
     seed = int(sys.argv[5])
 
     out_dir = "out/%s/" % data
-    out_file = out_dir + "results-multi-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
+    res_file = out_dir + "results-multi-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
+    model_file = out_dir + "model-multi-g%d-t%d-f%d-s%d.png" % (num_generations, num_trees, fold, seed)
 
-    if False and os.path.exists(out_file):  # TODO: Uncomment when running properly
+    if False and os.path.exists(res_file):  # TODO: Uncomment when running properly
         print("Have already ran for these settings, exiting early")
     else:
         # Run and save results
-        res = main(data, num_generations, num_trees, fold, seed)
-        save_to_file(res, out_dir, out_file)
+        res = main(data, num_generations, num_trees, fold, seed, model_file)
+        print(res)
+        save_results_to_file(res, out_dir, res_file)

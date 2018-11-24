@@ -29,34 +29,9 @@ def diversity_search(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, stats=
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
 
-        all_failure_vectors = []
-
         # To begin with we can only set the f1_score
         for ind, fit in zip(invalid_ind, fitnesses):
-            ind.fitness.values = fit[0], 0 # Set the diversity to 0 as we do not know it yet
-            ind.failure_vector = fit[1]  # Extract the failure vector
-            all_failure_vectors.append(ind.failure_vector)
-
-        all_failure_vectors = np.asarray(all_failure_vectors, dtype=bool)
-
-        # Since the ensemble uses majority voting, compute the most common success/failure for each instance
-        ensemble_failures = mode(all_failure_vectors)[0].flatten()
-        num_ensemble_failures = np.count_nonzero(ensemble_failures == 0)
-
-        # Now we must compute the diversity for all individuals. We must do this for all individuals
-        # not just the invalid ones, as the diversity changes based on the entire population. Check
-        # the paper referenced in the doc string for the related formulas/explanations
-
-        for ind in offspring:
-            failure_vector = ind.failure_vector
-            hamming_distance = _hamming(failure_vector, ensemble_failures)
-            sum_num_failures = np.count_nonzero(failure_vector == 0) + num_ensemble_failures
-
-            # Protect against divide by zero
-            pfc = (hamming_distance / sum_num_failures) if sum_num_failures > 0 else 1
-
-            # Keep the original f1 score, but set the new diversity fitness (the pfc)
-            ind.fitness.values = ind.fitness.values[0], pfc
+            ind.fitness.values = fit
 
         # Update the hall of fame with the generated individuals
         if halloffame is not None:
@@ -71,10 +46,6 @@ def diversity_search(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, stats=
 
         if verbose:
             print(logbook.stream)
-
-        if num_ensemble_failures == 0:
-            print("Ensemble classified every instance correctly, exiting early!")
-            break
 
         # Vary the population
         offspring = algorithms.varOr(population, toolbox, lambda_, cxpb, mutpb)
