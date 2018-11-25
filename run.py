@@ -10,25 +10,31 @@ from h2o.estimators.random_forest import H2ORandomForestEstimator
 import h2o
 h2o.init()
 
+def xgboost():
+    pass
+
+def rf():
+    pass
+
+def deep_learning():
+    pass
+
 def main(data, num_generations, num_trees, fold, seed, model_file):
     ###########
     kf = StratifiedKFold(shuffle=True, n_splits=10, random_state=seed)
     X, y = read_data("data/"+data+".csv")
 
+    # Split the data based on the fold of this run
     train_index, test_index = list(kf.split(X, y))[fold]
     X_train, X_test = X[train_index], X[test_index]
     y_train, y_test = y[train_index], y[test_index]
 
-    num_features = X_train.shape[1]
-    full_train = np.hstack((X_train, y_train))
-    full_test = np.hstack((X_test, y_test))
-
     # H2o requires specially formatted data
-    h2_train = h2o.H2OFrame(python_obj=full_train)
-    h2_test = h2o.H2OFrame(python_obj=full_test)
+    h2_train = h2o.H2OFrame(python_obj=np.hstack((X_train, y_train)))
+    h2_test = h2o.H2OFrame(python_obj=np.hstack((X_test, y_test)))
 
-    model = H2ORandomForestEstimator(ntrees=num_trees)
-
+    # Make and train the RF
+    model = H2ORandomForestEstimator(ntrees=100)
     model.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
 
     # We use the predictions from the model as the new "labels" for training GP. Important to not touch test

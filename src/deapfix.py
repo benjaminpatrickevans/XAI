@@ -1,6 +1,7 @@
 import random
 from inspect import isclass
-import sys
+from collections import defaultdict
+from deap import gp
 
 def genFull(pset, min_, max_, type_=None):
     """Generate an expression where each leaf has a the same depth
@@ -144,3 +145,49 @@ def add_primitive(pset, type_, expr, stack, depth, force_prefix=None):
 
     return True
 
+
+def cxOnePoint(ind1, ind2):
+    """
+    A modification of the "cxOnePoint" crossover provided by deap. The randomly
+    generated individual will be different from the parents, to try and reduce
+    the amount of duplicated trees generation.
+
+    Randomly select in each individual and exchange each subtree with the
+    point as root between each individual, loop until the generated children
+    are unique from the parents (stops trying after 10 attempts to prevent
+    infinite loops when two trees identical.)
+
+    :param ind1: First tree participating in the crossover.
+    :param ind2: Second tree participating in the crossover.
+    :returns: A tuple of two trees.
+    """
+    if len(ind1) < 2 or len(ind2) < 2:
+        # No crossover on single node tree
+        return ind1, ind2
+
+    # List all available primitive types in each individual
+    types1 = defaultdict(list)
+    types2 = defaultdict(list)
+    if ind1.root.ret == gp.__type__:
+        # Not STGP optimization
+        types1[gp.__type__] = range(1, len(ind1))
+        types2[gp.__type__] = range(1, len(ind2))
+        common_types = [gp.__type__]
+    else:
+        for idx, node in enumerate(ind1[1:], 1):
+            types1[node.ret].append(idx)
+        for idx, node in enumerate(ind2[1:], 1):
+            types2[node.ret].append(idx)
+        common_types = set(types1.keys()).intersection(set(types2.keys()))
+
+    if len(common_types) > 0:
+        type_ = random.choice(list(common_types))
+
+        index1 = random.choice(types1[type_])
+        index2 = random.choice(types2[type_])
+
+        slice1 = ind1.searchSubtree(index1)
+        slice2 = ind2.searchSubtree(index2)
+        ind1[slice1], ind2[slice2] = ind2[slice2], ind1[slice1]
+
+    return ind1, ind2

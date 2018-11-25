@@ -1,14 +1,13 @@
-from deap import tools, algorithms
-import itertools
+from deap import tools, algorithms, gp
 import numpy as np
-from scipy.stats import mode
+from copy import copy
 
 def _hamming(a, b):
     assert a.shape == b.shape
     return np.count_nonzero(a != b)
 
-def diversity_search(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, stats=None, halloffame=None,
-                     verbose=__debug__):
+def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, stats=None, halloffame=None,
+                   verbose=__debug__):
     """This is a modification of the :math:`(\mu + \lambda)` evolutionary algorithm.
     The original algorithm can be found at deap.algorithms.eaMuPlusLambda.
 
@@ -33,6 +32,9 @@ def diversity_search(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, stats=
         for ind, fit in zip(invalid_ind, fitnesses):
             ind.fitness.values = fit
 
+        # Prune
+        offspring = [prune(ind) for ind in offspring]
+
         # Update the hall of fame with the generated individuals
         if halloffame is not None:
             halloffame.update(offspring)
@@ -51,3 +53,31 @@ def diversity_search(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, stats=
         offspring = algorithms.varOr(population, toolbox, lambda_, cxpb, mutpb)
 
     return population, logbook
+
+
+def prune(ind):
+    # Just to be safe, copy the tree
+    tree = copy(ind)
+
+    # If we cant prune anymore, return the tree.
+    if not tree:
+        print("Unable to prune any further", tree)
+        return tree
+
+    children_outputs = []
+
+    # Start at 1 as searchSubtree(0) is self
+    for child in range(1, len(tree)):
+        # Slice of the original tree where the new tree is present
+        subtree_slice = tree.searchSubtree(child)
+
+        # Convert to a tree so we can recurse
+        subtree = gp.PrimitiveTree(tree[subtree_slice])
+
+        # Recurse on the subtree
+        tree[subtree_slice] = prune(subtree)
+
+        # Call with the input
+        #output = tree[subtree_slice]
+
+    return tree

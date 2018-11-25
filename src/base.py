@@ -1,4 +1,4 @@
-from deap import gp, base, creator, tools
+from deap import gp, base, creator, tools, algorithms
 from src import deapfix, search
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
@@ -31,8 +31,11 @@ class EvolutionaryBase(Classifier):
         self._reset_pset()
         self.toolbox = self.create_toolbox(self.pset)
 
-        self.crs_rate = 0.7
-        self.mut_rate = 0.18
+        self.crs_rate = 0.8
+        self.mut_rate = 0.2
+
+        # Cache for the trees
+        self.evaluated_individuals = {}
 
     def _reset_pset(self):
         self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
@@ -40,10 +43,10 @@ class EvolutionaryBase(Classifier):
         self.pset.renameArguments(ARG0="Mask", ARG1="TrainData")
 
     def create_toolbox(self, pset):
-        # Multiobjective. Maximising score, minimising height
-        creator.create('FitnessMulti', base.Fitness, weights=(1.0, -1.0))
+        # Maximising score
+        creator.create('FitnessMax', base.Fitness, weights=(1.0, ))
 
-        creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMulti, failure_vector=list)
+        creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
 
         toolbox = base.Toolbox()
         toolbox.register("expr", deapfix.genHalfAndHalf, pset=pset, min_=1, max_=3)
@@ -51,8 +54,7 @@ class EvolutionaryBase(Classifier):
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
         toolbox.register("compile", gp.compile, pset=pset)
 
-        #toolbox.register("select", tools.selTournament, tournsize=3)
-        toolbox.register("select", tools.selNSGA2)
+        toolbox.register("select", tools.selDoubleTournament, fitness_size=7, parsimony_size=1.5, fitness_first=True)
         toolbox.register("mate", gp.cxOnePoint)
         toolbox.register("expr_mut", deapfix.genHalfAndHalf, min_=0, max_=2)
         toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
@@ -61,7 +63,6 @@ class EvolutionaryBase(Classifier):
         toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
 
         # Fitness function added in .fit as we need the data
-
         return toolbox
 
     def _categorical_feature_node(self, feature_idx, mask, *children):
@@ -310,41 +311,6 @@ class EvolutionaryBase(Classifier):
 
         g.draw(file_name)
 
-    def ensemble_selection(self, data, members):
-        labels = data[:, -1]
-
-        # Return the f1 score adding the potential member to ensemble would yield
-        def compute_goodness(existing_ensemble, potential_member):
-            preds = self._soft_voting(data[:, :-1], existing_ensemble + [potential_member])
-            score = metrics.f1_score(labels, preds, average="weighted")
-            return score
-
-        ensemble = []
-
-        best_length = 0
-        best_score = 0
-
-        while len(ensemble) < self.max_trees:
-            # We want to compute how good each member is for the current ensemble
-            fn = partial(compute_goodness, ensemble)
-
-            # Find the member which maximises the f1 score of the overall ensemble
-            best_addition = max(members, key=fn)
-            ensemble.append(best_addition)
-
-            # Store the best ensemble size we find
-            ensemble_preds = self._soft_voting(data[:, :-1], ensemble)
-            score = metrics.f1_score(labels, ensemble_preds, average="weighted")
-
-            print(len(ensemble))
-
-            if score > best_score:
-                best_score = score
-                best_length = len(ensemble)
-
-        return ensemble[:best_length]
-
-
     def fit(self, x, y):
         # Ensure we use numpy arrays. Shuffle as well to be safe
         x, y = shuffle(np.asarray(x), np.asarray(y))
@@ -352,27 +318,17 @@ class EvolutionaryBase(Classifier):
         num_instances, num_features = x.shape
 
         # Combine to make it easier for processing
-        all_train_data = np.hstack((x, y))
-
-        length = all_train_data.shape[0]
-        train_size = int(length * 0.2)
-
-        # Split into train and a leave out validation for ensemble construction
-        train_data = all_train_data[:train_size]
-        valid_data = all_train_data[train_size:]
+        train_data = np.hstack((x, y))
 
         self.toolbox.register("evaluate", self._fitness_function, train_data=train_data)
 
         self._add_functions_and_terminals(x)
 
-        def round_out(fn, x, axis=0):
-            return np.round(fn(x, axis=axis), 3)
-
-        stats = tools.Statistics(lambda ind: ind.fitness.values)
-        stats.register("min", partial(round_out, np.min))
-        stats.register("mean", partial(round_out, np.mean))
-        stats.register("max", partial(round_out, np.max))
-        stats.register("std", partial(round_out, np.std))
+        stats = tools.Statistics(lambda ind: ind.fitness.values[0])
+        stats.register("min", np.min)
+        stats.register("mean", np.mean)
+        stats.register("max", np.max)
+        stats.register("std", np.std)
 
         population_size = self.max_trees
 
@@ -380,16 +336,19 @@ class EvolutionaryBase(Classifier):
 
         hof = tools.HallOfFame(1)  # We only use the best evolved model
 
-        population, logbook = search.diversity_search(population=pop, toolbox=self.toolbox, mu=population_size,
-                                                      lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
-                                                      ngen=self.num_generations, stats=stats, halloffame=hof)
+        #population, logbook = search.eaMuPlusLambda(population=pop, toolbox=self.toolbox, mu=population_size,
+        #                                            lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
+        #                                            ngen=self.num_generations, stats=stats, halloffame=hof)
+
+        population, logbook = algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate,
+                                                  self.num_generations, stats=stats, halloffame=hof)
+
+        # Debugging
+        for model in population:
+            print(model)
 
         # Now we want to use all the train data, so at test time the models are more robust
-        self.train_data = all_train_data
+        self.train_data = train_data
 
         self.model = hof[0]
         self.models = population  # Final population
-
-        # Construct an ensemble that maximises performance on the given leave out valid set
-        #self.greedy_ensemble = self.ensemble_selection(valid_data, self.models)
-
