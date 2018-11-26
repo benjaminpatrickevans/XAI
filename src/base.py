@@ -1,5 +1,5 @@
 from deap import gp, base, creator, tools, algorithms
-from src import deapfix, search
+from src import deapcustom, search
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
 import random
@@ -28,19 +28,19 @@ class EvolutionaryBase(Classifier):
         self.num_generations = num_generations
         self.verbose = verbose
 
-        self._reset_pset()
-        self.toolbox = self.create_toolbox(self.pset)
-
         self.crs_rate = 0.8
         self.mut_rate = 0.2
 
         # Cache for the trees
         self.cache = {}
 
-    def _reset_pset(self):
-        self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
+        self.pset = self.create_pset()
+        self.toolbox = self.create_toolbox(self.pset)
 
-        self.pset.renameArguments(ARG0="Mask", ARG1="TrainData")
+    def create_pset(self):
+        pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)
+        pset.renameArguments(ARG0="Mask", ARG1="TrainData")
+        return pset
 
     def create_toolbox(self, pset):
         # Maximising score
@@ -49,15 +49,16 @@ class EvolutionaryBase(Classifier):
         creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
 
         toolbox = base.Toolbox()
-        toolbox.register("expr", deapfix.genHalfAndHalf, pset=pset, min_=1, max_=3)
+        toolbox.register("expr", deapcustom.genHalfAndHalf, pset=pset, min_=1, max_=3)
         toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
         toolbox.register("compile", gp.compile, pset=pset)
 
         toolbox.register("select", tools.selDoubleTournament, fitness_size=7, parsimony_size=1.5, fitness_first=True)
-        toolbox.register("mate", gp.cxOnePoint)
-        toolbox.register("expr_mut", deapfix.genHalfAndHalf, min_=0, max_=2)
-        toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
+        toolbox.register("mate", deapcustom.repeated_crossover, existing=self.cache, toolbox=toolbox)
+        toolbox.register("expr_mut", deapcustom.genHalfAndHalf, min_=0, max_=2)
+        toolbox.register("mutate", deapcustom.repeated_mutation, expr=toolbox.expr_mut, pset=pset, existing=self.cache,
+                         toolbox=toolbox)
 
         toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))
         toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=self.max_depth))

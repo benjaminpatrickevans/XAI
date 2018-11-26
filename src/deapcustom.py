@@ -1,6 +1,5 @@
 import random
 from inspect import isclass
-from collections import defaultdict
 from deap import gp
 
 def genFull(pset, min_, max_, type_=None):
@@ -146,48 +145,63 @@ def add_primitive(pset, type_, expr, stack, depth, force_prefix=None):
     return True
 
 
-def cxOnePoint(ind1, ind2):
+def repeated_mutation(individual, expr, pset, existing, toolbox, max_tries=10):
     """
-    A modification of the "cxOnePoint" crossover provided by deap. The randomly
-    generated individual will be different from the parents, to try and reduce
-    the amount of duplicated trees generation.
-
-    Randomly select in each individual and exchange each subtree with the
-    point as root between each individual, loop until the generated children
-    are unique from the parents (stops trying after 10 attempts to prevent
-    infinite loops when two trees identical.)
-
-    :param ind1: First tree participating in the crossover.
-    :param ind2: Second tree participating in the crossover.
-    :returns: A tuple of two trees.
+        Repeated apply mutUniform until the mutated individual has
+        not existed before.
+    :param individual:
+    :param expr:
+    :param pset:
+    :return:
     """
-    if len(ind1) < 2 or len(ind2) < 2:
-        # No crossover on single node tree
-        return ind1, ind2
 
-    # List all available primitive types in each individual
-    types1 = defaultdict(list)
-    types2 = defaultdict(list)
-    if ind1.root.ret == gp.__type__:
-        # Not STGP optimization
-        types1[gp.__type__] = range(1, len(ind1))
-        types2[gp.__type__] = range(1, len(ind2))
-        common_types = [gp.__type__]
-    else:
-        for idx, node in enumerate(ind1[1:], 1):
-            types1[node.ret].append(idx)
-        for idx, node in enumerate(ind2[1:], 1):
-            types2[node.ret].append(idx)
-        common_types = set(types1.keys()).intersection(set(types2.keys()))
+    # Try for max_tries, or until we generate a unique individual
+    for i in range(max_tries):
+        ind = toolbox.clone(individual)
 
-    if len(common_types) > 0:
-        type_ = random.choice(list(common_types))
+        mutated = gp.mutUniform(ind, expr, pset)
 
-        index1 = random.choice(types1[type_])
-        index2 = random.choice(types2[type_])
+        # mutUniform returns a tuple, so access the first element of the tuple and see if that is unique
+        if str(mutated[0]) not in existing:
+            print("Mutated to unique at", i)
+            break
 
-        slice1 = ind1.searchSubtree(index1)
-        slice2 = ind2.searchSubtree(index2)
-        ind1[slice1], ind2[slice2] = ind2[slice2], ind1[slice1]
+    return mutated
 
-    return ind1, ind2
+
+def repeated_crossover(ind1, ind2, existing, toolbox, max_tries=10):
+    """
+        Repeatedly apply cxOnePoint until the generated individuals are
+        unique from the existing originals (or until max_tries is hit).
+        Thiw was inspired by tpots _mate_operator.
+    :param ind1:
+    :param ind2:
+    :param existing:
+    :param toolbox:
+    :param max_tries:
+    :return:
+    """
+    unique_offspring1 = None
+    unique_offspring2 = None
+
+    # Try for max_tries, or until we generate a unique individual
+    for i in range(max_tries):
+        ind1_copy, ind2_copy = toolbox.clone(ind1), toolbox.clone(ind2)
+        offspring1, offspring2 = gp.cxOnePoint(ind1_copy, ind2_copy)
+
+        if str(offspring1) not in existing:
+            unique_offspring1 = offspring1
+
+        if str(offspring2) not in existing:
+            unique_offspring2 = offspring2
+
+        # Only break once both are unique
+        if unique_offspring1 and unique_offspring2:
+            print("Made unique at try", i)
+            break
+
+    # If we didnt find a unique, then use the last (repeated) offspring generated
+    unique_offspring1 = unique_offspring1 or offspring1
+    unique_offspring2 = unique_offspring2 or offspring2
+
+    return unique_offspring1, unique_offspring2
