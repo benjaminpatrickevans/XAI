@@ -35,7 +35,7 @@ class EvolutionaryBase(Classifier):
         self.mut_rate = 0.2
 
         # Cache for the trees
-        self.evaluated_individuals = {}
+        self.cache = {}
 
     def _reset_pset(self):
         self.pset = gp.PrimitiveSetTyped("MAIN", [mask_type, train_data_type], train_data_type)

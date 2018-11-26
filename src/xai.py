@@ -46,8 +46,13 @@ class GP(EvolutionaryBase):
         return class_probabilities, classes[majority_class_idx]
 
     def _fitness_function(self, individual, train_data):
+        tree_str = str(individual)
+
+        # Avoid recomputing
+        if tree_str in self.cache:
+            return self.cache[tree_str]
+
         kf = KFold(random_state=0)
-        
         scores = []
 
         # We output a failure string for computing diversity. Since diversity is related to the entire population,
@@ -65,11 +70,16 @@ class GP(EvolutionaryBase):
             scores.append(f1)
 
         score = np.mean(scores)
+        # Fitness must be a tuple, even with only 1 objective
+        fitness = score,
+
+        # Store in cache so we don't need to reevaluate
+        self.cache[tree_str] = fitness
 
         if self.verbose:
             print(individual, score)
 
-        return score,
+        return fitness
 
     def predict(self, x):
         if self.model is None:
