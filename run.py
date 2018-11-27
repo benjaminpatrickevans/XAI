@@ -4,22 +4,45 @@ import numpy as np
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, f1_score
 import sys
+import subprocess
 import pickle
 import os
 from h2o.estimators.random_forest import H2ORandomForestEstimator
+from h2o.backend import H2OLocalServer
 import h2o
 h2o.init()
 
-def xgboost():
-    pass
 
-def rf():
-    pass
+def h2o_plot(model, model_file):
+    '''
+        Plot an h2o tree. From:
+        https://resources.oreilly.com/oriole/interpretable-machine-learning-with-python-xgboost-and-h2o/blob/master/dt_surrogate_loco.ipynb
 
-def deep_learning():
-    pass
+    :param model:
+    :param model_file:
+    :return:
+    '''
+    mojo_path = model.download_mojo(path='.')
 
-def main(data, num_generations, num_trees, fold, seed, model_file):
+    hs = H2OLocalServer()
+    h2o_jar_path = hs._find_jar()
+
+    gv_file_name = model_file + '_dt.gv'
+    gv_args = str('java -cp ' + h2o_jar_path +
+                  ' hex.genmodel.tools.PrintMojo --tree 0 -i '
+                  + mojo_path + ' -o').split()
+    gv_args.append(gv_file_name)
+
+    subprocess.call(gv_args)
+
+    png_file_name = model_file + '_dt.png'
+    png_args = str('dot -Tpng ' + gv_file_name + ' -o ').split()
+    png_args.append(png_file_name)
+
+    subprocess.call(png_args)
+
+
+def main(data, num_generations, num_trees, fold, seed, model_file, blackbox="RF"):
     ###########
     kf = StratifiedKFold(shuffle=True, n_splits=10, random_state=seed)
     X, y = read_data("data/"+data+".csv")
@@ -33,34 +56,64 @@ def main(data, num_generations, num_trees, fold, seed, model_file):
     h2_train = h2o.H2OFrame(python_obj=np.hstack((X_train, y_train)))
     h2_test = h2o.H2OFrame(python_obj=np.hstack((X_test, y_test)))
 
-    # Make and train the RF
-    model = H2ORandomForestEstimator(ntrees=100)
-    model.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
+    # =================
+    # Train the complex model
+    # =================
+    blackbox = H2ORandomForestEstimator(ntrees=100)
+    blackbox.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
 
-    # We use the predictions from the model as the new "labels" for training GP. Important to not touch test
-    # yet to avoid any bias
-    blackbox_train_predictions = model.predict(h2_train)["predict"].as_data_frame().values
+    # We use the predictions from the model as the new "labels" for training surrogate.
+    blackbox_train_predictions = blackbox.predict(h2_train)["predict"].as_data_frame().values
     blackbox_train_score = f1_score(blackbox_train_predictions, y_train, average="weighted")
 
+    blackbox_test_predictions = blackbox.predict(h2_test)["predict"].as_data_frame().values
+    blackbox_test_score = f1_score(blackbox_test_predictions, y_test, average="weighted")
+
+    print("The random forest achieved", "%.2f" % blackbox_train_score, "on the train set and",
+          "%.2f" % blackbox_test_score, "on the test set")
+
+    # =================
+    # Train the surrogates
+    # =================
+
+    h2_blackbox_train = h2o.H2OFrame(python_obj=np.hstack((X_train, blackbox_train_predictions)))
+    h2_blackbox_test = h2o.H2OFrame(python_obj=np.hstack((X_test, blackbox_test_predictions)))
+
+    model_id = 'dt_surrogate_mojo'
+    dt = H2ORandomForestEstimator(ntrees=1, sample_rate=1, mtries=-2, model_id=model_id,
+                                  max_depth=6)  # Make a h2o decision tree. Same max depth as our models
+
+    # Train using the predictions from the RF
+    dt.train(x=h2_blackbox_train.columns[:-1], y=h2_blackbox_train.columns[-1], training_frame=h2_blackbox_train)
+    h2o_plot(dt, model_file)
+
+    training_recreations = dt.predict(h2_blackbox_train)["predict"].as_data_frame().values
+    dt_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
+    testing_recreations = dt.predict(h2_blackbox_test)["predict"].as_data_frame().values
+    dt_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
+
+    # Save the resulting trees
+    mojo_path = dt.download_mojo(path='.')
+    print('Generated MOJO path:\n', mojo_path)
+
+    print("DT was able to recreate", dt_training_recreating_pct, "% of them on the train,", "and %.2f" %
+          dt_testing_recreating_pct, "on the test set")
+
+    # Proposed
     evoTree = GP(max_trees=num_trees, num_generations=num_generations)
     evoTree.fit(X_train, blackbox_train_predictions)
+    evoTree.plot(model_file+".png") # Save the resulting tree
     training_recreations = evoTree.predict(X_train)
-    training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
+    gp_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
 
-    print("The random forest achieved", "%.2f" % blackbox_train_score, "on the train set")
-    print("Now training GP on these predictions")
-    print("GP was able to recreate", training_recreating_pct, "% of them")
-
-    blackbox_test_predictions = model.predict(h2_test)["predict"].as_data_frame().values
-    blackbox_test_score = f1_score(blackbox_test_predictions, y_test, average="weighted")
     testing_recreations = evoTree.predict(X_test)
-    testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
+    gp_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
 
-    print("On the test set, the RF achieved %.2f" % blackbox_test_score)
-    print("And the new model was able to recreate", testing_recreating_pct, "% of them")
-    evoTree.plot(model_file)
+    print("GP was able to recreate", gp_training_recreating_pct, "% of them on the train, and %.2f",
+          gp_testing_recreating_pct, "on the test set")
 
-    return [blackbox_train_score, training_recreating_pct, blackbox_test_score, testing_recreating_pct]
+    return [blackbox_train_score, blackbox_test_score, dt_training_recreating_pct, dt_testing_recreating_pct,
+            gp_training_recreating_pct, gp_testing_recreating_pct]
 
 
 def save_results_to_file(res, out_dir, out_file):
@@ -82,7 +135,7 @@ if __name__ == "__main__":
 
     out_dir = "out/%s/" % data
     res_file = out_dir + "results-multi-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
-    model_file = out_dir + "model-multi-g%d-t%d-f%d-s%d.png" % (num_generations, num_trees, fold, seed)
+    model_file = out_dir + "model-multi-g%d-t%d-f%d-s%d" % (num_generations, num_trees, fold, seed)
 
     if False and os.path.exists(res_file):  # TODO: Uncomment when running properly
         print("Have already ran for these settings, exiting early")

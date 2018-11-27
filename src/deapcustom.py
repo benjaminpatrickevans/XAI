@@ -163,7 +163,6 @@ def repeated_mutation(individual, expr, pset, existing, toolbox, max_tries=10):
 
         # mutUniform returns a tuple, so access the first element of the tuple and see if that is unique
         if str(mutated[0]) not in existing:
-            print("Mutated to unique at", i)
             break
 
     return mutated
@@ -197,7 +196,6 @@ def repeated_crossover(ind1, ind2, existing, toolbox, max_tries=10):
 
         # Only break once both are unique
         if unique_offspring1 and unique_offspring2:
-            print("Made unique at try", i)
             break
 
     # If we didnt find a unique, then use the last (repeated) offspring generated

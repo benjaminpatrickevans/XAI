@@ -11,7 +11,6 @@ import pygraphviz as pgv
 import numbers
 import os
 import re
-from sklearn import metrics
 
 # The training data is just an ndarray
 train_data_type = type("TrainData", (np.ndarray, ), {})
@@ -49,6 +48,7 @@ class EvolutionaryBase(Classifier):
         creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
 
         toolbox = base.Toolbox()
+
         toolbox.register("expr", deapcustom.genHalfAndHalf, pset=pset, min_=1, max_=3)
         toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
@@ -274,37 +274,48 @@ class EvolutionaryBase(Classifier):
         nodes, edges, labels = gp.graph(self.model)
 
         # For simpler graphs we want to ignore masks and training data
-        ignore_indices = [idx for idx in labels if labels[idx] == "Mask" or labels[idx] == "TrainData"]
+        to_remove = [idx for idx in labels
+                          if labels[idx] == "Mask" or labels[idx] == "TrainData"]
 
-        # Remove the nodes and edges that point to any mask
-        nodes = [node for node in nodes if node not in ignore_indices]
-        edges = [edge for edge in edges if edge[0] not in ignore_indices and edge[1] not in ignore_indices]
+        # We also want to simplify the tree where we can
+        for idx in labels:
+            label = str(labels[idx])
 
-        g = pgv.AGraph(outputorder="edgesfirst")
+            # If it s a feature node, do some pretty formatting and add the split point to the node
+            if label.startswith("FN_"):
+                # The split value is always the next child
+                split_child = idx + 1
+                to_remove.append(split_child) # The child no longer needs to be its own node
+
+                split_value = round(labels[split_child], 2)
+                clean_label = label.replace("FN_", "").replace("Feature", "Feature ").replace("gt", " > ")
+
+                labels[idx] = clean_label + str(split_value)
+            elif label.endswith("_le") or label.endswith("_gt"):
+
+                # We should remove these nodes by replacing them with their only child
+                # These are only used for the program but not important visually
+                to_remove.append(idx)
+
+                replacement = idx + 1
+
+                # Update the edges
+                edges = [(replacement, edge[1]) for edge in edges if edge[0] == idx]
+                edges = [(edge[0], replacement) for edge in edges if edge[1] == idx]
+
+        # Remove the redundant nodes
+        nodes = [node for node in nodes if node not in to_remove]
+        edges = [edge for edge in edges if edge[0] not in to_remove and edge[1] not in to_remove]
+
+        g = pgv.AGraph()
         g.add_nodes_from(nodes)
         g.add_edges_from(edges)
         g.layout(prog="dot")
 
+        # Format the graph
         for i in nodes:
             n = g.get_node(i)
-            label = labels[i]
-
-            if isinstance(label, numbers.Number):
-                label = round(label, 2)
-
-            label = str(label)
-
-            # The child nodes indicate if a feature node was true or false
-            if label.endswith("_le"):
-                label = "False"
-            elif label.endswith("_gt"):
-                label = "True"
-            elif label.startswith("FN_"):
-                # Do some pretty formatting
-                text = label.replace("FN_", "")
-                text = text.replace("Feature", "Feature ")
-                text = text.replace("gt", " > ")
-                label = text
+            label = str(labels[i])
 
             n.attr["label"] = label
             n.attr["fillcolor"] = "white"
@@ -341,8 +352,9 @@ class EvolutionaryBase(Classifier):
         #                                            lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
         #                                            ngen=self.num_generations, stats=stats, halloffame=hof)
 
-        population, logbook = algorithms.eaSimple(pop, self.toolbox, self.crs_rate, self.mut_rate,
-                                                  self.num_generations, stats=stats, halloffame=hof)
+        population, logbook = algorithms.eaSimple(population=pop, toolbox=self.toolbox, cxpb=self.crs_rate,
+                                                  mutpb=self.mut_rate, ngen=self.num_generations,
+                                                  stats=stats, halloffame=hof)
 
         # Debugging
         for model in population:
