@@ -273,9 +273,12 @@ class EvolutionaryBase(Classifier):
 
         nodes, edges, labels = gp.graph(self.model)
 
-        # For simpler graphs we want to ignore masks and training data
-        to_remove = [idx for idx in labels
-                          if labels[idx] == "Mask" or labels[idx] == "TrainData"]
+        print(nodes)
+        print(edges)
+        print(labels)
+
+        # For simpler graphs we want to ignore masks as they only used for the code
+        to_remove = [idx for idx in labels if labels[idx] == "Mask"]
 
         # We also want to simplify the tree where we can
         for idx in labels:
@@ -292,16 +295,20 @@ class EvolutionaryBase(Classifier):
 
                 labels[idx] = clean_label + str(split_value)
             elif label.endswith("_le") or label.endswith("_gt"):
-
                 # We should remove these nodes by replacing them with their only child
                 # These are only used for the program but not important visually
                 to_remove.append(idx)
 
+                # They only have one child
                 replacement = idx + 1
 
                 # Update the edges
-                edges = [(replacement, edge[1]) for edge in edges if edge[0] == idx]
-                edges = [(edge[0], replacement) for edge in edges if edge[1] == idx]
+                edges = [(replacement, edge[1]) if edge[0] == idx else edge for edge in edges]
+                edges = [(edge[0], replacement) if edge[1] == idx else edge for edge in edges]
+
+                # We would have introduced a self edge doing this
+                edges = [edge for edge in edges if edge[0] != edge[1]]
+
 
         # Remove the redundant nodes
         nodes = [node for node in nodes if node not in to_remove]
