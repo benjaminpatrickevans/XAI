@@ -186,7 +186,12 @@ def repeated_crossover(ind1, ind2, existing, toolbox, max_tries=10):
     # Try for max_tries, or until we generate a unique individual
     for i in range(max_tries):
         ind1_copy, ind2_copy = toolbox.clone(ind1), toolbox.clone(ind2)
-        offspring1, offspring2 = gp.cxOnePoint(ind1_copy, ind2_copy)
+
+        try:
+            offspring1, offspring2 = gp.cxOnePoint(ind1_copy, ind2_copy)
+        except IndexError as e:
+            print("The offspring causing error", ind1_copy, ind2_copy)
+            raise e
 
         if str(offspring1) not in existing:
             unique_offspring1 = offspring1

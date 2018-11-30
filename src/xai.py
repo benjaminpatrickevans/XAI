@@ -1,12 +1,12 @@
 from src.base import EvolutionaryBase
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import KFold
 from sklearn import metrics
 import numpy as np
 
 
 class GP(EvolutionaryBase):
 
-    def __init__(self, max_trees=1024, max_depth=6, num_generations=50, verbose=0):
+    def __init__(self, max_trees=1024, max_depth=10, num_generations=50, verbose=0):
         super().__init__(max_trees, max_depth, num_generations, verbose)
 
     def _predict_for_instance(self, instance, training_data, tree, toolbox):
@@ -45,19 +45,31 @@ class GP(EvolutionaryBase):
         # Return the probabilities and the majority class
         return class_probabilities, classes[majority_class_idx]
 
+    def complexity(self, individual):
+        # Number of features in the tree
+        num_nodes = sum(1 if node.name.startswith("FN_") or node.name.startswith("CFN_") else 0 for node in individual)
+
+        max_nodes = self.max_depth  # Approximation
+
+        # Note: Technically with constructed features this could be higher than 1
+        complexity = num_nodes / max_nodes
+
+        # We don't want to encourage trees with no features!
+        if complexity == 0:
+            complexity = 1
+
+        # So cap the complexity at 1
+        return min(1, complexity)
+
     def _fitness_function(self, individual, train_data):
         tree_str = str(individual)
 
-        # Avoid recomputing
+        # Avoid recomputing fitnesses
         if tree_str in self.cache:
             return self.cache[tree_str]
 
         kf = KFold(random_state=0)
         scores = []
-
-        # We output a failure string for computing diversity. Since diversity is related to the entire population,
-        # this can only be done AFTER computing all the fitness values. This is done in search.diversity_search
-        failure_vector = []
 
         for train_index, test_index in kf.split(train_data):
             training_data, valid_data = train_data[train_index], train_data[test_index]
@@ -69,15 +81,16 @@ class GP(EvolutionaryBase):
             f1 = metrics.f1_score(real_labels, predictions, average="weighted")
             scores.append(f1)
 
-        score = np.mean(scores)
-        # Fitness must be a tuple, even with only 1 objective
-        fitness = score,
+        average_score = np.mean(scores)
+        complexity = self.complexity(individual)
+
+        fitness = average_score, complexity
 
         # Store in cache so we don't need to reevaluate
         self.cache[tree_str] = fitness
 
         if self.verbose:
-            print(individual, score)
+            print(individual, fitness)
 
         return fitness
 

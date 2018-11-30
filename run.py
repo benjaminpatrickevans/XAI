@@ -8,6 +8,9 @@ import subprocess
 import pickle
 import os
 from h2o.estimators.random_forest import H2ORandomForestEstimator
+from h2o.estimators.gbm import H2OGradientBoostingEstimator
+from h2o.estimators.deeplearning import H2ODeepLearningEstimator
+
 from h2o.backend import H2OLocalServer
 import h2o
 h2o.init()
@@ -42,7 +45,7 @@ def h2o_plot(model, model_file):
     subprocess.call(png_args)
 
 
-def main(data, num_generations, num_trees, fold, seed, model_file, blackbox="RF"):
+def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_model):
     ###########
     kf = StratifiedKFold(shuffle=True, n_splits=10, random_state=seed)
     X, y = read_data("data/"+data+".csv")
@@ -59,7 +62,16 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox="RF"
     # =================
     # Train the complex model
     # =================
-    blackbox = H2ORandomForestEstimator(ntrees=100)
+
+    blackbox_options = {
+        "RF": H2ORandomForestEstimator(ntrees=100),
+        "GB": H2OGradientBoostingEstimator(ntrees=100),
+        "DL": H2ODeepLearningEstimator(epochs=1000),
+    }
+
+    # Choose the model based on the given parameter
+    blackbox = blackbox_options[blackbox_model]
+
     blackbox.train(x=h2_train.columns[:-1], y=h2_train.columns[-1], training_frame=h2_train)
 
     # We use the predictions from the model as the new "labels" for training surrogate.
@@ -69,7 +81,7 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox="RF"
     blackbox_test_predictions = blackbox.predict(h2_test)["predict"].as_data_frame().values
     blackbox_test_score = f1_score(blackbox_test_predictions, y_test, average="weighted")
 
-    print("The random forest achieved", "%.2f" % blackbox_train_score, "on the train set and",
+    print("The " + blackbox.__class__.__name__ + " achieved", "%.2f" % blackbox_train_score, "on the train set and",
           "%.2f" % blackbox_test_score, "on the test set")
 
     # =================
@@ -92,34 +104,28 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox="RF"
     testing_recreations = dt.predict(h2_blackbox_test)["predict"].as_data_frame().values
     dt_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
 
-    # Save the resulting trees
-    mojo_path = dt.download_mojo(path='.')
-    print('Generated MOJO path:\n', mojo_path)
-
-    print("DT was able to recreate", dt_training_recreating_pct, "% of them on the train,", "and %.2f" %
+    print("DT was able to recreate %.2f%%" % dt_training_recreating_pct, "of them on the train, and %.2f%%" %
           dt_testing_recreating_pct, "on the test set")
 
     # Proposed
     evoTree = GP(max_trees=num_trees, num_generations=num_generations)
     evoTree.fit(X_train, blackbox_train_predictions)
     evoTree.plot(model_file+".png") # Save the resulting tree
+    evoTree.plot_pareto(model_file+"_pareto.png")
     training_recreations = evoTree.predict(X_train)
     gp_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
 
     testing_recreations = evoTree.predict(X_test)
     gp_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
 
-    print("GP was able to recreate", gp_training_recreating_pct, "% of them on the train, and %.2f",
+    print("GP was able to recreate %.2f%%" % gp_training_recreating_pct, "of them on the train, and %.2f%%" %
           gp_testing_recreating_pct, "on the test set")
 
     return [blackbox_train_score, blackbox_test_score, dt_training_recreating_pct, dt_testing_recreating_pct,
             gp_training_recreating_pct, gp_testing_recreating_pct]
 
 
-def save_results_to_file(res, out_dir, out_file):
-    # Make the subdirectory
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+def save_results_to_file(res, out_file):
     # Save
     with open(out_file, 'wb') as fp:
         pickle.dump(res, fp)
@@ -132,15 +138,21 @@ if __name__ == "__main__":
     num_trees = int(sys.argv[3])
     fold = int(sys.argv[4])
     seed = int(sys.argv[5])
+    blackbox_model = sys.argv[6].upper()
 
     out_dir = "out/%s/" % data
-    res_file = out_dir + "results-multi-g%d-t%d-f%d-s%d.pickle" % (num_generations, num_trees, fold, seed)
-    model_file = out_dir + "model-multi-g%d-t%d-f%d-s%d" % (num_generations, num_trees, fold, seed)
+    res_file = out_dir + "results-multi-%s-g%d-t%d-f%d-s%d.pickle" % (blackbox_model, num_generations, num_trees, fold, seed)
+    model_file = out_dir + "model-multi-%s-g%d-t%d-f%d-s%d" % (blackbox_model, num_generations, num_trees, fold, seed)
 
     if False and os.path.exists(res_file):  # TODO: Uncomment when running properly
         print("Have already ran for these settings, exiting early")
     else:
+
+        # Make the subdirectory
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+
         # Run and save results
-        res = main(data, num_generations, num_trees, fold, seed, model_file)
+        res = main(data, num_generations, num_trees, fold, seed, model_file, blackbox_model)
         print(res)
-        save_results_to_file(res, out_dir, res_file)
+        save_results_to_file(res, res_file)

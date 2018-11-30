@@ -1,14 +1,14 @@
 from deap import gp, base, creator, tools, algorithms
-from src import deapcustom, search
+from src import deapcustom
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
+import matplotlib.pyplot as plt
 import random
 import numpy as np
 import operator
 from operator import eq
 from functools import partial
 import pygraphviz as pgv
-import numbers
 import os
 import re
 
@@ -42,10 +42,10 @@ class EvolutionaryBase(Classifier):
         return pset
 
     def create_toolbox(self, pset):
-        # Maximising score
-        creator.create('FitnessMax', base.Fitness, weights=(1.0, ))
+        # Maximising score, minimising complexity
+        creator.create('FitnessMulti', base.Fitness, weights=(1.0, -1.0))
 
-        creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
+        creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMulti)
 
         toolbox = base.Toolbox()
 
@@ -54,7 +54,8 @@ class EvolutionaryBase(Classifier):
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
         toolbox.register("compile", gp.compile, pset=pset)
 
-        toolbox.register("select", tools.selDoubleTournament, fitness_size=7, parsimony_size=1.5, fitness_first=True)
+        #toolbox.register("select", tools.selDoubleTournament, fitness_size=7, parsimony_size=1.5, fitness_first=True)
+        toolbox.register("select", tools.selNSGA2)
         toolbox.register("mate", deapcustom.repeated_crossover, existing=self.cache, toolbox=toolbox)
         toolbox.register("expr_mut", deapcustom.genHalfAndHalf, min_=0, max_=2)
         toolbox.register("mutate", deapcustom.repeated_mutation, expr=toolbox.expr_mut, pset=pset, existing=self.cache,
@@ -203,9 +204,7 @@ class EvolutionaryBase(Classifier):
             # It actually returns a function which returns a constructed_type, this is what we do throughout since
             # the tree should be traversed from the root not from the leaves
             self.pset.addPrimitive(lambda ind=feature: retrieve_feature(ind), [], constructed_type,
-                                   name="Feature"+str(feature))
-
-
+                                   name="CFN_Feature"+str(feature))
 
         # Combination operators take 2 ndarrays and perform a mathematical function (i.e. add) on them.
         def divide(left, right):
@@ -227,18 +226,17 @@ class EvolutionaryBase(Classifier):
                                    name=operation.__name__)
 
         # We need to filter the constructed feature to be >=0, to do this we need to compare the new feature
-        # with the original training data, and filter that data accordingly
-        def constructed_feature(construct, mask, train):
+        # with the inputs, and return the appropriate branch
+        def constructed_feature(construct, mask, true_branch, false_branch):
             mask = mask.reshape(1, -1)  # Even though this is 1d, we want to treat as 2d so all operators can be uniform
             res = construct(mask)  # Construct the feature for the mask/input vector
-            constructed = construct(train)  # Construct the feature for all the training data
-            condition_met = constructed >= 0  # Retrieve the training rows where the constructed val is greater than 0
 
-            # Now since the indices are the same, we can use this to access our original train data and filter
-            # based on the mask. Once we have filtered the data, we no longer require the constructed feature.
-            return train[np.where(condition_met)] if res >= 0 else train[np.where(~condition_met)]
+            # Filter based on whether the constructed mask feature was >= 0 or not
+            return true_branch[np.where(construct(true_branch) >= 0)] if res >= 0\
+                else false_branch[np.where(construct(false_branch) < 0)]
 
-        self.pset.addPrimitive(constructed_feature, [constructed_type, mask_type, train_data_type],
+        self.pset.addPrimitive(constructed_feature,
+                               [constructed_type, mask_type, train_data_type, train_data_type],
                                train_data_type,
                                name="ConstructedFilter")
 
@@ -262,20 +260,54 @@ class EvolutionaryBase(Classifier):
 
         self._add_constructed_features(numeric_features)
 
-    def plot(self, file_name):
-        if self.model is None:
-            raise Exception("You must call fit before plot!")
+    def flatten_constructed(self, idx, nodes, edges, labels):
+        '''
+            Used for plotting, rather than a tree having a subtree
+            for a constructed feature, this gets flattened to a single
+            node.
+        :param idx:
+        :param nodes:
+        :param edges:
+        :param labels:
+        :return:
+        '''
+        children = [child for (parent, child) in edges if parent == idx]
 
+        if not children:
+            return labels[idx], [idx]
+
+        replacements = {
+            "add": "+",
+            "subtract": "-",
+            "multiply": "*",
+            "divide": "/"
+        }
+
+        label = labels[idx]
+        label = label.replace(label, replacements[label])
+
+        children_out = [self.flatten_constructed(child, nodes, edges, labels) for child in children]
+
+        children_labels = [out[0] for out in children_out]
+        children_indices = [out[1] for out in children_out]
+
+        # Return an updated label and the children nodes so we can remove them
+        return "(" + children_labels[0] + ")" + label + "(" + children_labels[1] + ")", [idx] + children_indices
+
+    def make_directories(self, file_name):
         file_dir = "/".join(file_name.split("/")[:-1]) # Extract the directory from the file name
 
         if not os.path.exists(file_dir):
             os.makedirs(file_dir)
 
-        nodes, edges, labels = gp.graph(self.model)
+    def plot(self, file_name):
+        if self.model is None:
+            raise Exception("You must call fit before plot!")
 
-        print(nodes)
-        print(edges)
-        print(labels)
+        # Make the required directories if they dont exist
+        self.make_directories(file_name)
+
+        nodes, edges, labels = gp.graph(self.model)
 
         # For simpler graphs we want to ignore masks as they only used for the code
         to_remove = [idx for idx in labels if labels[idx] == "Mask"]
@@ -308,13 +340,23 @@ class EvolutionaryBase(Classifier):
 
                 # We would have introduced a self edge doing this
                 edges = [edge for edge in edges if edge[0] != edge[1]]
+            elif label == "ConstructedFilter":
 
+                # The first child is the constructed feature
+                constructed_child = idx + 1
+
+                label, remove = self.flatten_constructed(constructed_child, nodes, edges, labels)
+                label = label + " >= 0"
+
+                labels[idx] = label
+
+                to_remove = to_remove + remove
 
         # Remove the redundant nodes
         nodes = [node for node in nodes if node not in to_remove]
         edges = [edge for edge in edges if edge[0] not in to_remove and edge[1] not in to_remove]
 
-        g = pgv.AGraph()
+        g = pgv.AGraph(outputorder="edgesfirst")
         g.add_nodes_from(nodes)
         g.add_edges_from(edges)
         g.layout(prog="dot")
@@ -330,6 +372,24 @@ class EvolutionaryBase(Classifier):
 
         g.draw(file_name)
 
+
+    def plot_pareto(self, file_name):
+        if self.pareto_front is None:
+            raise Exception("You must call fit before plotting!")
+
+        self.make_directories(file_name)
+
+        frontier = np.array([ind.fitness.values for ind in self.pareto_front])
+        plt.scatter(frontier[:, 1], frontier[:, 0], c="b")
+        plt.ylabel("f1-score")
+        plt.xlabel("Size")
+
+        # Both in range 0..1
+        plt.ylim(0, 1)
+        plt.xlim(0, 1)
+
+        plt.savefig(file_name)
+
     def fit(self, x, y):
         # Ensure we use numpy arrays. Shuffle as well to be safe
         x, y = shuffle(np.asarray(x), np.asarray(y))
@@ -343,32 +403,43 @@ class EvolutionaryBase(Classifier):
 
         self._add_functions_and_terminals(x)
 
-        stats = tools.Statistics(lambda ind: ind.fitness.values[0])
-        stats.register("min", np.min)
-        stats.register("mean", np.mean)
-        stats.register("max", np.max)
-        stats.register("std", np.std)
+        def pretty_format(fn, out, axis=0):
+            # Format the two objectives by rounding to 3dp
+            return np.round(fn(out, axis=axis), 3)
+
+        stats = tools.Statistics(lambda ind: ind.fitness.values)
+        stats.register("min", partial(pretty_format, np.min))
+        stats.register("mean", partial(pretty_format, np.mean))
+        stats.register("max", partial(pretty_format, np.max))
+        stats.register("std", partial(pretty_format, np.std))
 
         population_size = self.max_trees
 
         pop = self.toolbox.population(n=population_size)
 
-        hof = tools.HallOfFame(1)  # We only use the best evolved model
+        def rough_eq(ind1, ind2):
+            # If the 2 fitnesses are very close
+            return np.allclose(ind1.fitness.values, ind2.fitness.values)
 
-        #population, logbook = search.eaMuPlusLambda(population=pop, toolbox=self.toolbox, mu=population_size,
-        #                                            lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
-        #                                            ngen=self.num_generations, stats=stats, halloffame=hof)
+        hof = tools.ParetoFront(similar=rough_eq)
 
-        population, logbook = algorithms.eaSimple(population=pop, toolbox=self.toolbox, cxpb=self.crs_rate,
-                                                  mutpb=self.mut_rate, ngen=self.num_generations,
-                                                  stats=stats, halloffame=hof)
+        population, logbook = algorithms.eaMuPlusLambda(population=pop, toolbox=self.toolbox, mu=population_size,
+                                                    lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
+                                                    ngen=self.num_generations, stats=stats, halloffame=hof)
 
-        # Debugging
-        for model in population:
-            print(model)
+        #population, logbook = algorithms.eaSimple(population=pop, toolbox=self.toolbox, cxpb=self.crs_rate,
+        #                                         mutpb=self.mut_rate, ngen=self.num_generations,
+        #                                          stats=stats, halloffame=hof)
+
+        if self.verbose:
+            print("Best model found:", hof[0])
 
         # Now we want to use all the train data, so at test time the models are more robust
         self.train_data = train_data
 
+        # Just use the best resulting model
         self.model = hof[0]
-        self.models = population  # Final population
+
+        self.pareto_front = hof
+
+        print("Pareto front", [ind.fitness.values for ind in hof])
