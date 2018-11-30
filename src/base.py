@@ -1,15 +1,12 @@
 from deap import gp, base, creator, tools, algorithms
-from src import deapcustom
+from src import deapcustom, plotter
 from sklearn.base import ClassifierMixin as Classifier
 from sklearn.utils import shuffle
-import matplotlib.pyplot as plt
 import random
 import numpy as np
 import operator
 from operator import eq
 from functools import partial
-import pygraphviz as pgv
-import os
 import re
 
 # The training data is just an ndarray
@@ -54,7 +51,6 @@ class EvolutionaryBase(Classifier):
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
         toolbox.register("compile", gp.compile, pset=pset)
 
-        #toolbox.register("select", tools.selDoubleTournament, fitness_size=7, parsimony_size=1.5, fitness_first=True)
         toolbox.register("select", tools.selNSGA2)
         toolbox.register("mate", deapcustom.repeated_crossover, existing=self.cache, toolbox=toolbox)
         toolbox.register("expr_mut", deapcustom.genHalfAndHalf, min_=0, max_=2)
@@ -162,7 +158,6 @@ class EvolutionaryBase(Classifier):
                                        lambda: random.uniform(minimum_feature_value, maximum_feature_value),
                                        split_type)
 
-        # TODO: If integers should we add equals?
         operators = [operator.le, operator.gt]
 
         feature_node_input_types = []
@@ -206,11 +201,11 @@ class EvolutionaryBase(Classifier):
             self.pset.addPrimitive(lambda ind=feature: retrieve_feature(ind), [], constructed_type,
                                    name="CFN_Feature"+str(feature))
 
-        # Combination operators take 2 ndarrays and perform a mathematical function (i.e. add) on them.
         def divide(left, right):
             # Divide by zero return 0 instead of crashing
             return np.divide(left, right, out=np.zeros_like(left), where=right != 0)
 
+        # Combination operators take 2 ndarrays and perform a mathematical function (i.e. add) on them.
         combination_operators = [np.add, np.multiply, np.subtract, divide]
 
         def combination_fn(l, r, op):
@@ -260,141 +255,21 @@ class EvolutionaryBase(Classifier):
 
         self._add_constructed_features(numeric_features)
 
-    def flatten_constructed(self, idx, nodes, edges, labels):
-        '''
-            Used for plotting, rather than a tree having a subtree
-            for a constructed feature, this gets flattened to a single
-            node.
-        :param idx:
-        :param nodes:
-        :param edges:
-        :param labels:
-        :return:
-        '''
-        children = [child for (parent, child) in edges if parent == idx]
-
-        if not children:
-            return labels[idx], [idx]
-
-        replacements = {
-            "add": "+",
-            "subtract": "-",
-            "multiply": "*",
-            "divide": "/"
-        }
-
-        label = labels[idx]
-        label = label.replace(label, replacements[label])
-
-        children_out = [self.flatten_constructed(child, nodes, edges, labels) for child in children]
-
-        children_labels = [out[0] for out in children_out]
-        children_indices = [out[1] for out in children_out]
-
-        # Return an updated label and the children nodes so we can remove them
-        return "(" + children_labels[0] + ")" + label + "(" + children_labels[1] + ")", [idx] + children_indices
-
-    def make_directories(self, file_name):
-        file_dir = "/".join(file_name.split("/")[:-1]) # Extract the directory from the file name
-
-        if not os.path.exists(file_dir):
-            os.makedirs(file_dir)
-
     def plot(self, file_name):
         if self.model is None:
             raise Exception("You must call fit before plot!")
 
-        # Make the required directories if they dont exist
-        self.make_directories(file_name)
-
-        nodes, edges, labels = gp.graph(self.model)
-
-        # For simpler graphs we want to ignore masks as they only used for the code
-        to_remove = [idx for idx in labels if labels[idx] == "Mask"]
-
-        # We also want to simplify the tree where we can
-        for idx in labels:
-            label = str(labels[idx])
-
-            # If it s a feature node, do some pretty formatting and add the split point to the node
-            if label.startswith("FN_"):
-                # The split value is always the next child
-                split_child = idx + 1
-                to_remove.append(split_child) # The child no longer needs to be its own node
-
-                split_value = round(labels[split_child], 2)
-                clean_label = label.replace("FN_", "").replace("Feature", "Feature ").replace("gt", " > ")
-
-                labels[idx] = clean_label + str(split_value)
-            elif label.endswith("_le") or label.endswith("_gt"):
-                # We should remove these nodes by replacing them with their only child
-                # These are only used for the program but not important visually
-                to_remove.append(idx)
-
-                # They only have one child
-                replacement = idx + 1
-
-                # Update the edges
-                edges = [(replacement, edge[1]) if edge[0] == idx else edge for edge in edges]
-                edges = [(edge[0], replacement) if edge[1] == idx else edge for edge in edges]
-
-                # We would have introduced a self edge doing this
-                edges = [edge for edge in edges if edge[0] != edge[1]]
-            elif label == "ConstructedFilter":
-
-                # The first child is the constructed feature
-                constructed_child = idx + 1
-
-                label, remove = self.flatten_constructed(constructed_child, nodes, edges, labels)
-                label = label + " >= 0"
-
-                labels[idx] = label
-
-                to_remove = to_remove + remove
-
-        # Remove the redundant nodes
-        nodes = [node for node in nodes if node not in to_remove]
-        edges = [edge for edge in edges if edge[0] not in to_remove and edge[1] not in to_remove]
-
-        g = pgv.AGraph(outputorder="edgesfirst")
-        g.add_nodes_from(nodes)
-        g.add_edges_from(edges)
-        g.layout(prog="dot")
-
-        # Format the graph
-        for i in nodes:
-            n = g.get_node(i)
-            label = str(labels[i])
-
-            n.attr["label"] = label
-            n.attr["fillcolor"] = "white"
-            n.attr["style"] = "filled"
-
-        g.draw(file_name)
-
+        plotter.plot_model(self.model, file_name)
 
     def plot_pareto(self, file_name):
         if self.pareto_front is None:
             raise Exception("You must call fit before plotting!")
 
-        self.make_directories(file_name)
-
-        frontier = np.array([ind.fitness.values for ind in self.pareto_front])
-        plt.scatter(frontier[:, 1], frontier[:, 0], c="b")
-        plt.ylabel("f1-score")
-        plt.xlabel("Size")
-
-        # Both in range 0..1
-        plt.ylim(0, 1)
-        plt.xlim(0, 1)
-
-        plt.savefig(file_name)
+        plotter.plot_pareto(self.pareto_front, file_name)
 
     def fit(self, x, y):
         # Ensure we use numpy arrays. Shuffle as well to be safe
         x, y = shuffle(np.asarray(x), np.asarray(y))
-
-        num_instances, num_features = x.shape
 
         # Combine to make it easier for processing
         train_data = np.hstack((x, y))
@@ -427,19 +302,16 @@ class EvolutionaryBase(Classifier):
                                                     lambda_=population_size, cxpb=self.crs_rate, mutpb=self.mut_rate,
                                                     ngen=self.num_generations, stats=stats, halloffame=hof)
 
-        #population, logbook = algorithms.eaSimple(population=pop, toolbox=self.toolbox, cxpb=self.crs_rate,
-        #                                         mutpb=self.mut_rate, ngen=self.num_generations,
-        #                                          stats=stats, halloffame=hof)
-
         if self.verbose:
             print("Best model found:", hof[0])
 
-        # Now we want to use all the train data, so at test time the models are more robust
+        print("Pareto front", [ind.fitness.values for ind in hof])
+
+        # For access at test time. TODO: Can we store the probabilities rather than the train data for speed?
         self.train_data = train_data
 
-        # Just use the best resulting model
-        self.model = hof[0]
-
+        # Store the entire pareto front
         self.pareto_front = hof
 
-        print("Pareto front", [ind.fitness.values for ind in hof])
+        # The model with highest score is pareto_front[0]
+        self.model = self.pareto_front[0]
