@@ -11,6 +11,7 @@ class GP(EvolutionaryBase):
 
     def _predict_for_instance(self, instance, training_data, tree, toolbox):
         callable_tree = toolbox.compile(expr=tree)
+
         matching_data = callable_tree(instance, training_data)
 
         # Using the matching data, if there was none then just use the training set

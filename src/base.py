@@ -188,7 +188,7 @@ class EvolutionaryBase(Classifier):
         """
 
         # The constructed is just a column in an ndarray, we wrap this type for the constraints in STGP
-        constructed_type = type("ConstructedFeature", (np.ndarray, ), {})
+        constructed_type = type("ConstructedFeature", (np.ndarray,), {})
 
         def retrieve_feature(index):
             # Return a function which takes some data and gives you the data at the feature index
@@ -199,7 +199,7 @@ class EvolutionaryBase(Classifier):
             # It actually returns a function which returns a constructed_type, this is what we do throughout since
             # the tree should be traversed from the root not from the leaves
             self.pset.addPrimitive(lambda ind=feature: retrieve_feature(ind), [], constructed_type,
-                                   name="CFN_Feature"+str(feature))
+                                   name="CFN_Feature" + str(feature))
 
         def divide(left, right):
             # Divide by zero return 0 instead of crashing
@@ -220,8 +220,11 @@ class EvolutionaryBase(Classifier):
                                    constructed_type,  # Outputs a single value
                                    name=operation.__name__)
 
+
+
+
         # We need to filter the constructed feature to be >=0, to do this we need to compare the new feature
-        # with the inputs, and return the appropriate branch
+        # with the original training data, and filter that data accordingly
         def constructed_feature(construct, mask, true_branch, false_branch):
             mask = mask.reshape(1, -1)  # Even though this is 1d, we want to treat as 2d so all operators can be uniform
             res = construct(mask)  # Construct the feature for the mask/input vector
@@ -304,8 +307,7 @@ class EvolutionaryBase(Classifier):
 
         if self.verbose:
             print("Best model found:", hof[0])
-
-        print("Pareto front", [ind.fitness.values for ind in hof])
+            print("Pareto front", [ind.fitness.values for ind in hof])
 
         # For access at test time. TODO: Can we store the probabilities rather than the train data for speed?
         self.train_data = train_data

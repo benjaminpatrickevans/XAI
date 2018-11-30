@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from deap import gp
 import numpy as np
 import os
-
+import itertools
 
 def plot_model(model, file_name):
 
@@ -18,6 +18,10 @@ def plot_model(model, file_name):
     # We also want to simplify the tree where we can
     for idx in labels:
         label = str(labels[idx])
+
+        # Skip as we iterate.
+        if idx in to_remove:
+            continue
 
         # If its a feature node, do some pretty formatting and add the split point to the node
         if label.startswith("FN_"):
@@ -122,8 +126,14 @@ def _flatten_constructed(idx, nodes, edges, labels):
     children_labels = [out[0] for out in children_out]
     children_indices = [out[1] for out in children_out]
 
+    indices_to_remove = [idx]
+
+    # Add all the children index lists to our list
+    for children_idx_list in children_indices:
+        indices_to_remove.extend(children_idx_list)
+
     # Return an updated label and the children nodes so we can remove them
-    return "(" + children_labels[0] + ")" + label + "(" + children_labels[1] + ")", [idx] + children_indices
+    return "(" + children_labels[0] + label + children_labels[1] + ")", indices_to_remove
 
 
 def _make_directories(file_name):

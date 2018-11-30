@@ -105,7 +105,7 @@ def generate(pset, min_, max_, condition, type_=None):
                 # If we try add a constructed feature but we are at the termination criteria, we should
                 # only add a feature, not another combiner node!
                 if type_.__name__ == "ConstructedFeature":
-                    force_prefix = "Feature"
+                    force_prefix = "CFN_Feature"
 
                 # Add a primitive, giving the optional type (force_prefix)
                 add_primitive(pset, type_, expr, stack, depth, force_prefix)
