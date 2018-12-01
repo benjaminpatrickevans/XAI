@@ -224,7 +224,7 @@ class EvolutionaryBase(Classifier):
 
 
         # We need to filter the constructed feature to be >=0, to do this we need to compare the new feature
-        # with the original training data, and filter that data accordingly
+        # with the mask, and return the appropriate branch.
         def constructed_feature(construct, mask, true_branch, false_branch):
             mask = mask.reshape(1, -1)  # Even though this is 1d, we want to treat as 2d so all operators can be uniform
             res = construct(mask)  # Construct the feature for the mask/input vector

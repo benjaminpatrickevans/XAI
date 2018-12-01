@@ -38,12 +38,16 @@ def h2o_plot(model, model_file):
 
     subprocess.call(gv_args)
 
+    # Compute complexity of dt based on the resulting graphviz
+    complexity = open(gv_file_name, 'r').read().count("shape=box")
+
     png_file_name = model_file + '_dt.png'
     png_args = str('dot -Tpng ' + gv_file_name + ' -o ').split()
     png_args.append(png_file_name)
 
     subprocess.call(png_args)
 
+    return complexity
 
 def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_model):
     ###########
@@ -97,7 +101,7 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
 
     # Train using the predictions from the RF
     dt.train(x=h2_blackbox_train.columns[:-1], y=h2_blackbox_train.columns[-1], training_frame=h2_blackbox_train)
-    h2o_plot(dt, model_file)
+    dt_complexity = h2o_plot(dt, model_file)
 
     training_recreations = dt.predict(h2_blackbox_train)["predict"].as_data_frame().values
     dt_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
@@ -112,6 +116,9 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
     evoTree.fit(X_train, blackbox_train_predictions)
     evoTree.plot(model_file+".png") # Save the resulting tree
     evoTree.plot_pareto(model_file+"_pareto.png")
+
+    gp_complexity = evoTree.complexity()
+
     training_recreations = evoTree.predict(X_train)
     gp_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
 
@@ -121,8 +128,8 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
     print("GP was able to recreate %.2f%%" % gp_training_recreating_pct, "of them on the train, and %.2f%%" %
           gp_testing_recreating_pct, "on the test set")
 
-    return [blackbox_train_score, blackbox_test_score, dt_training_recreating_pct, dt_testing_recreating_pct,
-            gp_training_recreating_pct, gp_testing_recreating_pct]
+    return [blackbox_train_score, blackbox_test_score, dt_training_recreating_pct, dt_testing_recreating_pct, dt_complexity,
+            gp_training_recreating_pct, gp_testing_recreating_pct, gp_complexity]
 
 
 def save_results_to_file(res, out_file):

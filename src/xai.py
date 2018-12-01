@@ -26,8 +26,13 @@ class GP(EvolutionaryBase):
         # Return this class
         return classes[most_common_class_idx]
 
-    def complexity(self, individual):
+    def complexity(self):
         # Number of features in the tree
+        num_nodes = sum(1 if node.name.startswith("FN_") or node.name.startswith("CFN_") else 0 for node in self.model)
+
+        return num_nodes
+
+    def _complexity_score(self, individual):
         num_nodes = sum(1 if node.name.startswith("FN_") or node.name.startswith("CFN_") else 0 for node in individual)
 
         # Note: Technically with constructed features this could be higher than 1
@@ -61,7 +66,7 @@ class GP(EvolutionaryBase):
             scores.append(f1)
 
         average_score = np.mean(scores)
-        complexity = self.complexity(individual)
+        complexity = self._complexity_score(individual)
 
         fitness = average_score, complexity
 

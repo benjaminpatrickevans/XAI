@@ -4,4 +4,4 @@ deap==1.2.2
 pandas==0.23.0
 pygraphviz==1.5
 h2o==3.22.0.1
-scikit_learn==0.20.1
+scikit_learn==0.19.2

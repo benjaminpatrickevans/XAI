@@ -1,9 +1,10 @@
 import pygraphviz as pgv
+import matplotlib
+matplotlib.use('Agg') # Do not use X windows since running as a script
 import matplotlib.pyplot as plt
 from deap import gp
 import numpy as np
 import os
-import itertools
 
 def plot_model(model, file_name):
 
