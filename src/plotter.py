@@ -6,6 +6,15 @@ from deap import gp
 import numpy as np
 import os
 
+def update_edges(edges, replacement, idx):
+    edges = [(replacement, edge[1]) if edge[0] == idx else edge for edge in edges]
+    edges = [(edge[0], replacement) if edge[1] == idx else edge for edge in edges]
+
+    # We would have introduced a self edge doing this
+    edges = [edge for edge in edges if edge[0] != edge[1]]
+
+    return edges
+
 def plot_model(model, file_name):
 
     # Make the required directories if they dont exist
@@ -16,6 +25,8 @@ def plot_model(model, file_name):
     # For simpler graphs we want to ignore masks as they only used for the code
     to_remove = [idx for idx in labels if labels[idx] == "Mask"]
 
+    edge_labels = {}
+
     # We also want to simplify the tree where we can
     for idx in labels:
         label = str(labels[idx])
@@ -25,14 +36,13 @@ def plot_model(model, file_name):
             continue
 
         # If its a feature node, do some pretty formatting and add the split point to the node
-        if label.startswith("FN_"):
+        if label.startswith("FN_Numeric"):
             # The split value is always the next child
             split_child = idx + 1
             to_remove.append(split_child)  # The child no longer needs to be its own node
-
             split_value = round(labels[split_child], 2)
-            clean_label = label.replace("FN_", "").replace("Feature", "Feature ").replace("gt", " > ")
-
+            label = label.replace("FN_NumericFeature", "C")
+            clean_label = label.replace("gt", " > ")
             labels[idx] = clean_label + str(split_value)
         elif label.endswith("_le") or label.endswith("_gt"):
             # We should remove these nodes by replacing them with their only child
@@ -42,12 +52,9 @@ def plot_model(model, file_name):
             # They only have one child
             replacement = idx + 1
 
-            # Update the edges
-            edges = [(replacement, edge[1]) if edge[0] == idx else edge for edge in edges]
-            edges = [(edge[0], replacement) if edge[1] == idx else edge for edge in edges]
+            # Replace all idx edges with the replacement node
+            edges = update_edges(edges, replacement, idx)
 
-            # We would have introduced a self edge doing this
-            edges = [edge for edge in edges if edge[0] != edge[1]]
         elif label == "ConstructedFilter":
 
             # The first child is the constructed feature
@@ -60,11 +67,29 @@ def plot_model(model, file_name):
 
             to_remove = to_remove + remove
 
+        elif "_category" in label:
+            # We want to replace categorical nodes with just an edge saying the category
+            to_remove.append(idx)
+
+            # Only one child (the category)
+            replacement = idx + 1
+
+            # Replace all idx edges with the replacement node
+            edges = update_edges(edges, replacement, idx)
+
+            incoming_edge = next(edge for edge in edges if edge[1] == replacement)
+
+            # We just want the category name, not any of the prefix
+            label = label.split("_category")[1]
+
+            edge_labels[incoming_edge] = label
+
+
     # Remove the redundant nodes
     nodes = [node for node in nodes if node not in to_remove]
     edges = [edge for edge in edges if edge[0] not in to_remove and edge[1] not in to_remove]
 
-    g = pgv.AGraph(outputorder="edgesfirst")
+    g = pgv.AGraph(outputorder="edgesfirst", directed=True, nodesep=.5, ranksep=1)
     g.add_nodes_from(nodes)
     g.add_edges_from(edges)
     g.layout(prog="dot")
@@ -74,9 +99,44 @@ def plot_model(model, file_name):
         n = g.get_node(i)
         label = str(labels[i])
 
+        # Try and match the type outputted by h2o for fair comparison
+
+        # If its a numeric splitting point
+        if ">" in label:
+            # Match the type outputted by h2o for fair comparison
+            label = label.replace("CFN_Feature", "C")
+
+            n.attr["shape"] = "box"
+
+            edges = g.edges(n)
+            edges[0].attr["label"] = "\n<=\n"
+            edges[0].attr["fontsize"] = 14
+            edges[1].attr["label"] = "\n      >\n"
+            edges[1].attr["fontsize"] = 14
+
+        elif label.startswith("FN_Category"):
+            label = label.replace("FN_CategoryFeature", "C")
+            n.attr["shape"] = "box"
+
+            # Add the categories as edge labels
+            edges = g.edges(n)
+
+            for edge in edges:
+                edge_indices = int(edge[0]), int(edge[1])
+                # Need to convert to ints since pygraphviz uses strings
+                if edge_indices in edge_labels:
+                    edge.attr["label"] = edge_labels[edge_indices]
+
+
         n.attr["label"] = label
         n.attr["fillcolor"] = "white"
+        n.attr["fontsize"] = 14
         n.attr["style"] = "filled"
+
+
+
+
+
 
     g.draw(file_name)
 

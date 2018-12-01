@@ -32,7 +32,7 @@ def h2o_plot(model, model_file):
 
     gv_file_name = model_file + '_dt.gv'
     gv_args = str('java -cp ' + h2o_jar_path +
-                  ' hex.genmodel.tools.PrintMojo --tree 0 -i '
+                  ' hex.genmodel.tools.PrintMojo --tree 0 --decimalplaces 2 -i '
                   + mojo_path + ' -o').split()
     gv_args.append(gv_file_name)
 

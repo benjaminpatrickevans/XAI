@@ -115,25 +115,25 @@ class EvolutionaryBase(Classifier):
         feature_node_input_types = []
 
         # Add the feature value nodes. These will form the children of the feature_node
-        for value in feature_values:
+        for category in feature_values:
             # TODO: Better regex?
-            clean_value_name = re.sub("\.|-|,| ", "", str(value))  # Remove white space, full stops, commas and spaces
-            feature_output_name = feature_name + "_" + clean_value_name + "Type"
+            clean_category_name = re.sub("\.|-|,| ", "", str(category))  # Remove white space, full stops, commas and spaces
+            feature_output_name = feature_name + "_" + clean_category_name + "Type"
 
             # Each feature value needs a special output type to ensure trees have a branch for each category
             feature_value_output_type = type(feature_output_name, (np.ndarray,), {})
 
             # Since we are in a for loop, must use val=value for the lambda. Check if the feature matches our value
-            self.pset.addPrimitive(lambda data, val=value: (partial(eq, val), data),
+            self.pset.addPrimitive(lambda data, val=category: (partial(eq, val), data),
                                    [train_data_type], feature_value_output_type,
-                                   name=feature_name + "_" + clean_value_name)
+                                   name=feature_name + "_category" + clean_category_name)
 
             feature_node_input_types.append(feature_value_output_type)
 
         # Add the feature node, with the categorical inputs from above.
         self.pset.addPrimitive(lambda *xargs, feature_idx=feature_index: self._categorical_feature_node(feature_idx, *xargs),
                                [mask_type, *feature_node_input_types],
-                               train_data_type, name="FN_"+feature_name)
+                               train_data_type, name="FN_Category"+feature_name)
 
     def _add_numeric_feature(self, feature_values, feature_index, feature_name):
         """
@@ -175,7 +175,7 @@ class EvolutionaryBase(Classifier):
         self.pset.addPrimitive(lambda split, mask, *xargs, feature_idx=feature_index:
                                self._numeric_feature_node(split, feature_idx, mask, *xargs),
                                [split_type, mask_type, *feature_node_input_types],
-                               train_data_type, name="FN_"+feature_name+split_operator.__name__)
+                               train_data_type, name="FN_Numeric"+feature_name)
 
 
     def _add_constructed_features(self, feature_indices):
@@ -256,7 +256,8 @@ class EvolutionaryBase(Classifier):
                 self._add_numeric_feature(feature_values, feature_index, feature_name)
                 numeric_features.append(feature_index)
 
-        self._add_constructed_features(numeric_features)
+        if numeric_features:
+            self._add_constructed_features(numeric_features)
 
     def plot(self, file_name):
         if self.model is None:
