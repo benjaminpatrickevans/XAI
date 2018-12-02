@@ -3,15 +3,12 @@ from sklearn.model_selection import KFold
 from sklearn import metrics
 import numpy as np
 
-
 class GP(EvolutionaryBase):
 
     def __init__(self, max_trees=1024, max_depth=10, num_generations=50, verbose=0):
         super().__init__(max_trees, max_depth, num_generations, verbose)
 
-    def _predict_for_instance(self, instance, training_data, tree, toolbox):
-        callable_tree = toolbox.compile(expr=tree)
-
+    def _predict_for_instance(self, callable_tree, training_data, instance):
         matching_data = callable_tree(instance, training_data)
 
         # Using the matching data, if there was none then just use the training set
@@ -52,6 +49,8 @@ class GP(EvolutionaryBase):
         if tree_str in self.cache:
             return self.cache[tree_str]
 
+        callable_tree = self.toolbox.compile(expr=individual)
+
         kf = KFold(random_state=0)
         scores = []
 
@@ -59,7 +58,7 @@ class GP(EvolutionaryBase):
             training_data, valid_data = train_data[train_index], train_data[test_index]
             real_labels = valid_data[:, -1]
 
-            predictions = [self._predict_for_instance(instance, training_data, individual, self.toolbox)
+            predictions = [self._predict_for_instance(callable_tree, training_data, instance)
                            for instance in valid_data]
 
             f1 = metrics.f1_score(real_labels, predictions, average="weighted")
@@ -85,5 +84,7 @@ class GP(EvolutionaryBase):
         # Ensure x is a ndarray
         x = np.asarray(x)
 
-        return [self._predict_for_instance(instance, self.train_data, self.model, self.toolbox)
+        callable_tree = self.toolbox.compile(self.model)
+
+        return [self._predict_for_instance(callable_tree, self.train_data, instance)
                 for instance in x]

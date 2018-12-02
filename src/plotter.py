@@ -5,8 +5,10 @@ import matplotlib.pyplot as plt
 from deap import gp
 import numpy as np
 import os
+import operator
+from functools import partial, reduce
 
-def update_edges(edges, replacement, idx):
+def _update_edges(edges, replacement, idx):
     edges = [(replacement, edge[1]) if edge[0] == idx else edge for edge in edges]
     edges = [(edge[0], replacement) if edge[1] == idx else edge for edge in edges]
 
@@ -15,7 +17,67 @@ def update_edges(edges, replacement, idx):
 
     return edges
 
-def plot_model(model, file_name):
+def _path_to_root(idx, edges, labels):
+    parents = [parent for (parent, child) in edges if child == idx]
+
+    if len(parents) > 1:
+        print("There should not be more than 2 parents. Something is wrong")
+        return None
+
+    if not parents:
+        # Must be at the root
+        return []
+
+    parent = parents[0]
+
+    path = [parent]
+
+    if labels[parent].startswith("FN_NumericFeature"):
+        # Add the splitting point as well
+        path.append(parent + 1)
+
+    # Recurse on parent
+    return path + _path_to_root(parent, edges, labels)
+
+
+def _most_common_class(data):
+    # Using the matching data, if there was none then just use the training set
+    labels = data[:, -1]
+
+    # Count the occurences for each class
+    classes, class_counts = np.unique(labels, return_counts=True)
+
+    # Find the class that achieved the most counts
+    most_common_class_idx = np.argmax(class_counts)
+
+    # Return this class
+    return classes[most_common_class_idx]
+
+
+def _path_to_functions(path, labels):
+
+    operations = []
+
+    for idx, node in enumerate(path):
+        label = str(labels[node])
+
+        # Numeric feature splits
+        if label.endswith("_le") or label.endswith("_gt"):
+            feature = str(labels[path[idx + 1]])
+            feature_idx = int(feature.split("FN_NumericFeature")[1])  # Just extract the index
+            splitting_point = float(labels[path[idx + 2]])
+            op = operator.le if label.endswith("_le") else operator.gt
+
+            def matches_condition(op, split, feature_index, data):
+                # Return a boolean array where true indicates op was met, false indicates op was not met
+                return np.where(op(split, data[:, feature_index]))
+
+            operations.append(partial(matches_condition, op, splitting_point, feature_idx))
+
+    return operations
+
+
+def plot_model(model, file_name, train_data):
 
     # Make the required directories if they dont exist
     _make_directories(file_name)
@@ -26,6 +88,27 @@ def plot_model(model, file_name):
     to_remove = [idx for idx in labels if labels[idx] == "Mask"]
 
     edge_labels = {}
+
+    leaves = [idx for idx in labels if labels[idx] == "TrainData"]
+
+    # Update the leaves to have the class labels
+    for leaf in leaves:
+
+        # Find the path to the root, and apply all the conditions along the way
+        path = _path_to_root(leaf, edges, labels)
+        conditions = _path_to_functions(path, labels)
+        filtered_indices = [condition(train_data) for condition in conditions]
+
+        # Need to find the data that matches ALL conditions, i.e. the intersect of all filters above
+        matching_indices = reduce(np.intersect1d, *filtered_indices)
+
+        # Apply this to the training data
+        matching_data = train_data[matching_indices]
+        leaf_class = _most_common_class(matching_data)
+
+        # Set the label to be the class
+        labels[leaf] = leaf_class
+
 
     # We also want to simplify the tree where we can
     for idx in labels:
@@ -42,8 +125,8 @@ def plot_model(model, file_name):
             to_remove.append(split_child)  # The child no longer needs to be its own node
             split_value = round(labels[split_child], 2)
             label = label.replace("FN_NumericFeature", "C")
-            clean_label = label.replace("gt", " > ")
-            labels[idx] = clean_label + str(split_value)
+            label = label + " > " + str(split_value)
+            labels[idx] = label
         elif label.endswith("_le") or label.endswith("_gt"):
             # We should remove these nodes by replacing them with their only child
             # These are only used for the program but not important visually
@@ -53,7 +136,7 @@ def plot_model(model, file_name):
             replacement = idx + 1
 
             # Replace all idx edges with the replacement node
-            edges = update_edges(edges, replacement, idx)
+            edges = _update_edges(edges, replacement, idx)
 
         elif label == "ConstructedFilter":
 
@@ -75,7 +158,7 @@ def plot_model(model, file_name):
             replacement = idx + 1
 
             # Replace all idx edges with the replacement node
-            edges = update_edges(edges, replacement, idx)
+            edges = _update_edges(edges, replacement, idx)
 
             incoming_edge = next(edge for edge in edges if edge[1] == replacement)
 

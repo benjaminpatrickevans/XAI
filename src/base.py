@@ -51,7 +51,7 @@ class EvolutionaryBase(Classifier):
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
         toolbox.register("compile", gp.compile, pset=pset)
 
-        toolbox.register("select", tools.selNSGA2)
+        toolbox.register("select", tools.selNSGA2, nd="log")
         toolbox.register("mate", deapcustom.repeated_crossover, existing=self.cache, toolbox=toolbox)
         toolbox.register("expr_mut", deapcustom.genHalfAndHalf, min_=0, max_=2)
         toolbox.register("mutate", deapcustom.repeated_mutation, expr=toolbox.expr_mut, pset=pset, existing=self.cache,
@@ -95,9 +95,7 @@ class EvolutionaryBase(Classifier):
         filtered_indices = np.where(condition(data[:, feature_index]))
 
         # Extract only the rows where the condition was true
-        filtered_data = data[filtered_indices]
-
-        return filtered_data
+        return data[filtered_indices]
 
     def _add_categorical_feature(self, feature_values, feature_index, feature_name):
         """
@@ -263,7 +261,7 @@ class EvolutionaryBase(Classifier):
         if self.model is None:
             raise Exception("You must call fit before plot!")
 
-        plotter.plot_model(self.model, file_name)
+        plotter.plot_model(self.model, file_name, self.train_data)
 
     def plot_pareto(self, file_name):
         if self.pareto_front is None:
