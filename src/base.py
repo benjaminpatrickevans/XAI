@@ -251,7 +251,7 @@ class EvolutionaryBase(Classifier):
             if feature_type == str:
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
             else:
-                #self._add_numeric_feature(feature_values, feature_index, feature_name)
+                self._add_numeric_feature(feature_values, feature_index, feature_name)
                 numeric_features.append(feature_index)
 
         if numeric_features:

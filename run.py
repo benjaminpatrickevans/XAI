@@ -101,12 +101,13 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
 
     # Train using the predictions from the RF
     dt.train(x=h2_blackbox_train.columns[:-1], y=h2_blackbox_train.columns[-1], training_frame=h2_blackbox_train)
-    dt_complexity = h2o_plot(dt, model_file)
 
     training_recreations = dt.predict(h2_blackbox_train)["predict"].as_data_frame().values
     dt_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
     testing_recreations = dt.predict(h2_blackbox_test)["predict"].as_data_frame().values
     dt_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
+
+    dt_complexity = h2o_plot(dt, model_file + "-%.2f" % dt_testing_recreating_pct)
 
     print("DT was able to recreate %.2f%%" % dt_training_recreating_pct, "of them on the train, and %.2f%%" %
           dt_testing_recreating_pct, "on the test set")
@@ -114,8 +115,6 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
     # Proposed
     evoTree = GP(max_trees=num_trees, num_generations=num_generations)
     evoTree.fit(X_train, blackbox_train_predictions)
-    evoTree.plot(model_file+".png") # Save the resulting tree
-    evoTree.plot_pareto(model_file+"_pareto.png")
 
     gp_complexity = evoTree.complexity()
 
@@ -127,6 +126,9 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
 
     print("GP was able to recreate %.2f%%" % gp_training_recreating_pct, "of them on the train, and %.2f%%" %
           gp_testing_recreating_pct, "on the test set")
+
+    evoTree.plot(model_file+ "-%.2f.png" % gp_testing_recreating_pct) # Save the resulting tree
+    evoTree.plot_pareto(model_file+"_pareto.png")
 
     return [blackbox_train_score, blackbox_test_score, dt_training_recreating_pct, dt_testing_recreating_pct, dt_complexity,
             gp_training_recreating_pct, gp_testing_recreating_pct, gp_complexity]

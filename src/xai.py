@@ -65,8 +65,7 @@ class GP(EvolutionaryBase):
             scores.append(f1)
 
         average_score = np.mean(scores)
-        # TODO: Temporary, inverted for testing
-        complexity = - self._complexity_score(individual)
+        complexity = self._complexity_score(individual)
 
         fitness = average_score, complexity
 
