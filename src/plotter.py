@@ -54,6 +54,10 @@ def _most_common_class(data):
     return classes[most_common_class_idx]
 
 
+def _matches_condition(op, feature_index, data):
+    # Return a boolean array where true indicates op was met, false indicates op was not met
+    return np.where(op(data[:, feature_index]))
+
 def _path_to_functions(path, labels):
 
     operations = []
@@ -68,11 +72,15 @@ def _path_to_functions(path, labels):
             splitting_point = float(labels[path[idx + 2]])
             op = operator.le if label.endswith("_le") else operator.gt
 
-            def matches_condition(op, split, feature_index, data):
-                # Return a boolean array where true indicates op was met, false indicates op was not met
-                return np.where(op(split, data[:, feature_index]))
+            operations.append(partial(_matches_condition, partial(op, splitting_point), feature_idx))
+        elif "_category" in label:
+            # TODO: This will break if the "clean" category name used for the node differs to the original category name
+            # for example if original name had (.) or (+) then we removed these for the tree.
+            category = label.split("_category")[1]
+            feature = str(labels[path[idx + 1]])
+            feature_idx = int(feature.split("FN_CategoryFeature")[1])  # Just extract the index
 
-            operations.append(partial(matches_condition, op, splitting_point, feature_idx))
+            operations.append(partial(_matches_condition, partial(operator.eq, category), feature_idx))
 
     return operations
 
@@ -91,23 +99,30 @@ def plot_model(model, file_name, train_data):
 
     leaves = [idx for idx in labels if labels[idx] == "TrainData"]
 
+    print(model)
+
     # Update the leaves to have the class labels
     for leaf in leaves:
 
         # Find the path to the root, and apply all the conditions along the way
         path = _path_to_root(leaf, edges, labels)
+
+        print(leaf, "Path", path, [labels[node] for node in path])
+
         conditions = _path_to_functions(path, labels)
         filtered_indices = [condition(train_data) for condition in conditions]
 
-        # Need to find the data that matches ALL conditions, i.e. the intersect of all filters above
-        matching_indices = reduce(np.intersect1d, *filtered_indices)
+        if filtered_indices:
 
-        # Apply this to the training data
-        matching_data = train_data[matching_indices]
-        leaf_class = _most_common_class(matching_data)
+            # Need to find the data that matches ALL conditions, i.e. the intersect of all filters above
+            matching_indices = reduce(np.intersect1d, *filtered_indices)
 
-        # Set the label to be the class
-        labels[leaf] = leaf_class
+            # Apply this to the training data
+            matching_data = train_data[matching_indices]
+            leaf_class = _most_common_class(matching_data)
+
+            # Set the label to be the class
+            labels[leaf] = leaf_class
 
 
     # We also want to simplify the tree where we can
@@ -166,7 +181,6 @@ def plot_model(model, file_name, train_data):
             label = label.split("_category")[1]
 
             edge_labels[incoming_edge] = label
-
 
     # Remove the redundant nodes
     nodes = [node for node in nodes if node not in to_remove]
