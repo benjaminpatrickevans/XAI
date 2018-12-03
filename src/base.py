@@ -221,15 +221,15 @@ class EvolutionaryBase(Classifier):
 
 
 
-        # We need to filter the constructed feature to be >=0, to do this we need to compare the new feature
+        # We need to filter the constructed feature to be > 0, to do this we need to compare the new feature
         # with the mask, and return the appropriate branch.
-        def constructed_feature(construct, mask, true_branch, false_branch):
+        def constructed_feature(construct, mask, false_branch, true_branch):
             mask = mask.reshape(1, -1)  # Even though this is 1d, we want to treat as 2d so all operators can be uniform
             res = construct(mask)  # Construct the feature for the mask/input vector
 
             # Filter based on whether the constructed mask feature was >= 0 or not
-            return true_branch[np.where(construct(true_branch) >= 0)] if res >= 0\
-                else false_branch[np.where(construct(false_branch) < 0)]
+            return true_branch[np.where(construct(true_branch) > 0)] if res >= 0\
+                else false_branch[np.where(construct(false_branch) <= 0)]
 
         self.pset.addPrimitive(constructed_feature,
                                [constructed_type, mask_type, train_data_type, train_data_type],
@@ -251,7 +251,7 @@ class EvolutionaryBase(Classifier):
             if feature_type == str:
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
             else:
-                self._add_numeric_feature(feature_values, feature_index, feature_name)
+                #self._add_numeric_feature(feature_values, feature_index, feature_name)
                 numeric_features.append(feature_index)
 
         if numeric_features:

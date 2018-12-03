@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from deap import gp
 import numpy as np
 import os
+import re
 import operator
 from functools import partial, reduce
 
@@ -58,15 +59,16 @@ def _matches_condition(op, feature_index, data):
     # Return a boolean array where true indicates op was met, false indicates op was not met
     return np.where(op(data[:, feature_index]))
 
-def _path_to_functions(path, labels):
+
+def _path_to_functions(path, nodes, edges, labels):
 
     operations = []
 
     for idx, node in enumerate(path):
         label = str(labels[node])
 
-        # Numeric feature splits
         if label.endswith("_le") or label.endswith("_gt"):
+            # Numeric feature splits
             feature = str(labels[path[idx + 1]])
             feature_idx = int(feature.split("FN_NumericFeature")[1])  # Just extract the index
             splitting_point = float(labels[path[idx + 2]])
@@ -74,6 +76,7 @@ def _path_to_functions(path, labels):
 
             operations.append(partial(_matches_condition, partial(op, splitting_point), feature_idx))
         elif "_category" in label:
+            # Categorical feature splits
             # TODO: This will break if the "clean" category name used for the node differs to the original category name
             # for example if original name had (.) or (+) then we removed these for the tree.
             category = label.split("_category")[1]
@@ -81,6 +84,19 @@ def _path_to_functions(path, labels):
             feature_idx = int(feature.split("FN_CategoryFeature")[1])  # Just extract the index
 
             operations.append(partial(_matches_condition, partial(operator.eq, category), feature_idx))
+
+        elif label == "ConstructedFilter":
+            # Constructed filter splits
+            constructed_child = node + 1
+            flat_label, _ = _flatten_constructed(constructed_child, nodes, edges, labels)
+
+            # We want to turn a flattened label, i.e. (CFN_Feature1*CFN_Feature3) into a callable function
+            # replace CFN_FeatureX with data[:, x] (i.e. access the columns in a nd array).
+            flat_label = re.sub(r'(CFN_Feature)([0-9]+)', r'data[:, \2]', flat_label)
+
+            # Make a function which takes in the data, and will apply the function string from above
+            fn = eval("lambda data: np.where(" + flat_label + "> 0)")
+            operations.append(fn)
 
     return operations
 
@@ -99,23 +115,19 @@ def plot_model(model, file_name, train_data):
 
     leaves = [idx for idx in labels if labels[idx] == "TrainData"]
 
-    print(model)
-
     # Update the leaves to have the class labels
     for leaf in leaves:
 
         # Find the path to the root, and apply all the conditions along the way
         path = _path_to_root(leaf, edges, labels)
 
-        print(leaf, "Path", path, [labels[node] for node in path])
-
-        conditions = _path_to_functions(path, labels)
+        conditions = _path_to_functions(path, nodes, edges, labels)
         filtered_indices = [condition(train_data) for condition in conditions]
 
         if filtered_indices:
 
             # Need to find the data that matches ALL conditions, i.e. the intersect of all filters above
-            matching_indices = reduce(np.intersect1d, *filtered_indices)
+            matching_indices = reduce(np.intersect1d, filtered_indices)
 
             # Apply this to the training data
             matching_data = train_data[matching_indices]
@@ -159,7 +171,7 @@ def plot_model(model, file_name, train_data):
             constructed_child = idx + 1
 
             label, remove = _flatten_constructed(constructed_child, nodes, edges, labels)
-            label = label + " >= 0"
+            label = label + " > 0"
 
             labels[idx] = label
 
@@ -181,6 +193,10 @@ def plot_model(model, file_name, train_data):
             label = label.split("_category")[1]
 
             edge_labels[incoming_edge] = label
+
+
+    # Now we need to update the constructed leaves to have class labels. Couldnt do this at the start as we want
+    # the flattened labels
 
     # Remove the redundant nodes
     nodes = [node for node in nodes if node not in to_remove]
@@ -229,11 +245,6 @@ def plot_model(model, file_name, train_data):
         n.attr["fillcolor"] = "white"
         n.attr["fontsize"] = 14
         n.attr["style"] = "filled"
-
-
-
-
-
 
     g.draw(file_name)
 
