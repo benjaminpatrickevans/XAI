@@ -126,11 +126,16 @@ def plot_model(model, file_name, train_data):
 
         if filtered_indices:
 
-            # Need to find the data that matches ALL conditions, i.e. the intersect of all filters above
-            matching_indices = reduce(np.intersect1d, filtered_indices)
+            if len(filtered_indices) > 1:
+                # Need to find the data that matches ALL conditions, i.e. the intersect of all filters above
+                matching_indices = reduce(np.intersect1d, filtered_indices)
+            else:
+                # Special case when theres only one, a tuple is returned so we need the first element of the list, then
+                # the first element of this tuple.
+                matching_indices = filtered_indices[0][0]
 
-            # Apply this to the training data
-            matching_data = train_data[matching_indices]
+            # Apply this to the training data. If theres no matching data, use majority class overall
+            matching_data = train_data[matching_indices] if matching_indices.size else train_data
             leaf_class = _most_common_class(matching_data)
 
             # Set the label to be the class
