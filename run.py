@@ -1,12 +1,16 @@
-from helpers import read_data
+from helpers import read_data, CategoricalToNumeric
 from src.xai import GP
+from comparisons import InterpretableDecisionTreeClassifier
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, make_scorer
+from sklearn.linear_model import LogisticRegression
 import sys
 import subprocess
 import pickle
 import os
+import pandas as pd
+import pysbrl
 from h2o.estimators.random_forest import H2ORandomForestEstimator
 from h2o.estimators.gbm import H2OGradientBoostingEstimator
 from h2o.estimators.deeplearning import H2ODeepLearningEstimator
@@ -14,6 +18,8 @@ from h2o.estimators.deeplearning import H2ODeepLearningEstimator
 from h2o.backend import H2OLocalServer
 import h2o
 h2o.init()
+
+
 
 
 def h2o_plot(model, model_file):
@@ -48,6 +54,120 @@ def h2o_plot(model, model_file):
     subprocess.call(png_args)
 
     return complexity
+
+
+def decision_tree(X_train, y_train, X_test, y_test):
+    h2_blackbox_train = h2o.H2OFrame(python_obj=np.hstack((X_train, y_train)))
+    h2_blackbox_test = h2o.H2OFrame(python_obj=np.hstack((X_test, y_test)))
+
+    model_id = 'dt_surrogate_mojo'
+    dt = H2ORandomForestEstimator(ntrees=1, sample_rate=1, mtries=-2, model_id=model_id,
+                                  max_depth=6)  # Make a h2o decision tree. Same max depth as our models
+
+    # Train using the predictions from the RF
+    dt.train(x=h2_blackbox_train.columns[:-1], y=h2_blackbox_train.columns[-1], training_frame=h2_blackbox_train)
+
+    training_recreations = dt.predict(h2_blackbox_train)["predict"].as_data_frame().values
+    dt_training_recreating_pct = accuracy_score(training_recreations, y_train) * 100
+    testing_recreations = dt.predict(h2_blackbox_test)["predict"].as_data_frame().values
+    dt_testing_recreating_pct = accuracy_score(testing_recreations, y_test) * 100
+
+    dt_complexity = h2o_plot(dt, model_file + "-%.2f" % dt_testing_recreating_pct)
+
+    return dt_training_recreating_pct, dt_testing_recreating_pct, dt_complexity
+
+def apply_one_hot_encoding(X_train, X_test):
+    X_train = pd.DataFrame(X_train)
+    X_test = pd.DataFrame(X_test)
+
+    encoder = CategoricalToNumeric()
+
+    X_train = encoder.fit_transform(X_train)
+    X_test = encoder.transform(X_test)
+
+    return X_train.values, X_test.values
+
+def simplified_decision_tree(X_train, y_train, X_test, y_test):
+
+    X_train, X_test = apply_one_hot_encoding(X_train, X_test)
+
+    # Simplified Sklearn decision tree
+    sdt = InterpretableDecisionTreeClassifier.IDecisionTreeClassifier()
+    sdt.fit(X_train, y_train)
+
+    sdt_complexity = str(sdt).count("if")  # Number of if statements = number of splitting points
+
+    training_recreations = sdt.predict(X_train)
+    sdt_training_recreating_pct = accuracy_score(training_recreations, y_train) * 100
+    testing_recreations = sdt.predict(X_test)
+    sdt_testing_recreating_pct = accuracy_score(testing_recreations, y_test) * 100
+
+    return sdt_training_recreating_pct, sdt_testing_recreating_pct, sdt_complexity
+
+
+def logistic_regression(X_train, y_train, X_test, y_test):
+    X_train, X_test = apply_one_hot_encoding(X_train, X_test)
+
+    # Logistic Regression
+    lr = LogisticRegression(penalty='l1')
+    lr.fit(X_train, y_train)
+    lr_complexity = np.count_nonzero(lr.coef_)
+
+    training_recreations = lr.predict(X_train)
+    lr_training_recreating_pct = accuracy_score(training_recreations, y_train) * 100
+    testing_recreations = lr.predict(X_test)
+    lr_testing_recreating_pct = accuracy_score(testing_recreations, y_test) * 100
+
+    return lr_training_recreating_pct, lr_testing_recreating_pct, lr_complexity
+
+
+def genetic_program(X_train, y_train, X_test, y_test, num_generations,
+                    num_trees, model_file):
+
+    evoTree = GP(max_trees=num_trees, num_generations=num_generations)
+    evoTree.fit(X_train, y_train)
+    gp_complexity = evoTree.complexity()
+
+    training_recreations = evoTree.predict(X_train)
+    gp_training_recreating_pct = accuracy_score(training_recreations, y_train) * 100
+    testing_recreations = evoTree.predict(X_test)
+    gp_testing_recreating_pct = accuracy_score(testing_recreations, y_test) * 100
+
+    evoTree.plot(model_file+ "-%.2f.png" % gp_testing_recreating_pct) # Save the resulting tree
+    evoTree.plot_pareto(model_file+"_pareto.png")
+
+    return gp_training_recreating_pct, gp_testing_recreating_pct, gp_complexity
+
+def bayesian_rule_list(X_train, y_train, X_test, y_test):
+    from mdlp.discretization import MDLP
+    from sklearn import preprocessing
+
+    # First one hot encode
+    X_train, X_test = apply_one_hot_encoding(X_train, X_test)
+
+
+    # Then need to convert classes to integers
+    encoder = preprocessing.LabelEncoder()
+    y_train = encoder.fit_transform(y_train)
+    y_test = encoder.transform(y_test)
+
+    # Then discretize features
+    transformer = MDLP()
+    X_train = transformer.fit_transform(X_train, y_train)
+    X_test = transformer.transform(X_test)
+
+    brl = pysbrl.BayesianRuleList()
+    brl.fit(X_train, y_train)
+
+    brl_complexity = brl.n_rules - 1 # -1 to exclude the default rule
+
+    training_recreations = brl.predict(X_train)
+    brl_training_recreating_pct = accuracy_score(training_recreations, y_train) * 100
+    testing_recreations = brl.predict(X_test)
+    brl_testing_recreating_pct = accuracy_score(testing_recreations, y_test) * 100
+
+    return brl_training_recreating_pct, brl_testing_recreating_pct, brl_complexity
+
 
 def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_model):
     ###########
@@ -92,45 +212,41 @@ def main(data, num_generations, num_trees, fold, seed, model_file, blackbox_mode
     # Train the surrogates
     # =================
 
-    h2_blackbox_train = h2o.H2OFrame(python_obj=np.hstack((X_train, blackbox_train_predictions)))
-    h2_blackbox_test = h2o.H2OFrame(python_obj=np.hstack((X_test, blackbox_test_predictions)))
-
-    model_id = 'dt_surrogate_mojo'
-    dt = H2ORandomForestEstimator(ntrees=1, sample_rate=1, mtries=-2, model_id=model_id,
-                                  max_depth=6)  # Make a h2o decision tree. Same max depth as our models
-
-    # Train using the predictions from the RF
-    dt.train(x=h2_blackbox_train.columns[:-1], y=h2_blackbox_train.columns[-1], training_frame=h2_blackbox_train)
-
-    training_recreations = dt.predict(h2_blackbox_train)["predict"].as_data_frame().values
-    dt_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
-    testing_recreations = dt.predict(h2_blackbox_test)["predict"].as_data_frame().values
-    dt_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
-
-    dt_complexity = h2o_plot(dt, model_file + "-%.2f" % dt_testing_recreating_pct)
+    dt_training_recreating_pct, dt_testing_recreating_pct, dt_complexity = \
+        decision_tree(X_train, blackbox_train_predictions, X_test, blackbox_test_predictions)
 
     print("DT was able to recreate %.2f%%" % dt_training_recreating_pct, "of them on the train, and %.2f%%" %
           dt_testing_recreating_pct, "on the test set")
 
-    # Proposed
-    evoTree = GP(max_trees=num_trees, num_generations=num_generations)
-    evoTree.fit(X_train, blackbox_train_predictions)
+    sdt_training_recreating_pct, sdt_testing_recreating_pct, sdt_complexity = \
+        simplified_decision_tree(X_train, blackbox_train_predictions, X_test, blackbox_test_predictions)
 
-    gp_complexity = evoTree.complexity()
+    print("SDT was able to recreate %.2f%%" % sdt_training_recreating_pct, "of them on the train, and %.2f%%" %
+          sdt_testing_recreating_pct, "on the test set")
 
-    training_recreations = evoTree.predict(X_train)
-    gp_training_recreating_pct = accuracy_score(training_recreations, blackbox_train_predictions) * 100
+    lr_training_recreating_pct, lr_testing_recreating_pct, lr_complexity = \
+        logistic_regression(X_train, blackbox_train_predictions, X_test, blackbox_test_predictions)
 
-    testing_recreations = evoTree.predict(X_test)
-    gp_testing_recreating_pct = accuracy_score(testing_recreations, blackbox_test_predictions) * 100
+    print("LR was able to recreate %.2f%%" % lr_training_recreating_pct, "of them on the train, and %.2f%%" %
+          lr_testing_recreating_pct, "on the test set")
+
+    brl_training_recreating_pct, brl_testing_recreating_pct, brl_complexity = \
+        bayesian_rule_list(X_train, blackbox_train_predictions, X_test, blackbox_test_predictions)
+    print("BRL was able to recreate %.2f%%" % brl_training_recreating_pct, "of them on the train, and %.2f%%" %
+          brl_testing_recreating_pct, "on the test set")
+
+    gp_training_recreating_pct, gp_testing_recreating_pct, gp_complexity = \
+        genetic_program(X_train, blackbox_train_predictions, X_test, blackbox_test_predictions, num_generations,
+                        num_trees, model_file)
 
     print("GP was able to recreate %.2f%%" % gp_training_recreating_pct, "of them on the train, and %.2f%%" %
           gp_testing_recreating_pct, "on the test set")
 
-    evoTree.plot(model_file+ "-%.2f.png" % gp_testing_recreating_pct) # Save the resulting tree
-    evoTree.plot_pareto(model_file+"_pareto.png")
-
-    return [blackbox_train_score, blackbox_test_score, dt_training_recreating_pct, dt_testing_recreating_pct, dt_complexity,
+    return [blackbox_train_score, blackbox_test_score,
+            dt_training_recreating_pct, dt_testing_recreating_pct, dt_complexity,
+            sdt_training_recreating_pct, sdt_testing_recreating_pct, sdt_complexity,
+            lr_training_recreating_pct, lr_testing_recreating_pct, lr_complexity,
+            brl_training_recreating_pct, brl_testing_recreating_pct, brl_complexity,
             gp_training_recreating_pct, gp_testing_recreating_pct, gp_complexity]
 
 
@@ -165,3 +281,5 @@ if __name__ == "__main__":
         res = main(data, num_generations, num_trees, fold, seed, model_file, blackbox_model)
         print(res)
         save_results_to_file(res, res_file)
+
+
