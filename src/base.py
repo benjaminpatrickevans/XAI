@@ -267,7 +267,7 @@ class EvolutionaryBase(Classifier):
         if self.pareto_front is None:
             raise Exception("You must call fit before plotting!")
 
-        plotter.plot_pareto(self.pareto_front, file_name)
+        plotter.plot_pareto(self.pareto_front, self.final_population, file_name)
 
     def fit(self, x, y):
         # Ensure we use numpy arrays. Shuffle as well to be safe
@@ -313,6 +313,9 @@ class EvolutionaryBase(Classifier):
 
         # Store the entire pareto front
         self.pareto_front = hof
+
+        # Store the final population (for plotting)
+        self.final_population = population
 
         # The model with highest score is pareto_front[0]
         self.model = self.pareto_front[0]

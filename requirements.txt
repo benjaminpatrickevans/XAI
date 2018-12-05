@@ -1,7 +1,10 @@
-matplotlib==2.2.3
-numpy==1.15.0
 deap==1.2.2
-pandas==0.23.0
+numpy==1.15.0
 pygraphviz==1.5
+matplotlib==2.2.3
+pandas==0.23.0
+pysbrl==0.4.1
+mdlp_discretization==0.3.2
 h2o==3.22.0.1
-scikit_learn==0.19.2
+mdlp==0.32
+scikit_learn==0.20.1

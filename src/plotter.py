@@ -254,11 +254,14 @@ def plot_model(model, file_name, train_data):
     g.draw(file_name)
 
 
-def plot_pareto(frontier, file_name):
+def plot_pareto(frontier, population, file_name):
     _make_directories(file_name)
 
     frontier = np.array([ind.fitness.values for ind in frontier])
-    plt.scatter(frontier[:, 1], frontier[:, 0], c="b")
+    population = np.array([ind.fitness.values for ind in population])
+
+    plt.scatter(population[:, 1], population[:, 0], c="b")
+    plt.scatter(frontier[:, 1], frontier[:, 0], c="r")
     plt.ylabel("f1-score")
     plt.xlabel("Size")
 
