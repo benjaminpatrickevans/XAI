@@ -83,6 +83,10 @@ def _path_to_functions(path, nodes, edges, labels):
             feature = str(labels[path[idx + 1]])
             feature_idx = int(feature.split("FN_CategoryFeature")[1])  # Just extract the index
 
+            # Since binary features are treated as categorical
+            if category.isdigit():
+                category = int(category)
+
             operations.append(partial(_matches_condition, partial(operator.eq, category), feature_idx))
 
         elif label == "ConstructedFilter":
