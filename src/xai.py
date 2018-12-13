@@ -5,7 +5,7 @@ import numpy as np
 
 class GP(EvolutionaryBase):
 
-    def __init__(self, max_trees=1024, max_depth=10, num_generations=50, verbose=0):
+    def __init__(self, max_trees=1024, max_depth=17, num_generations=50, verbose=0):
         super().__init__(max_trees, max_depth, num_generations, verbose)
 
     def _predict_for_instance(self, callable_tree, training_data, instance):

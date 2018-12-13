@@ -19,7 +19,7 @@ mask_type = type("Mask", (np.ndarray, ), {})
 class EvolutionaryBase(Classifier):
 
     def __init__(self, max_trees, max_depth, num_generations, verbose):
-        self.max_trees = max_trees
+        self.num_trees = max_trees
         self.max_depth = max_depth
         self.num_generations = num_generations
         self.verbose = verbose
@@ -248,7 +248,8 @@ class EvolutionaryBase(Classifier):
             feature_values = set(x[:, feature_index])
             feature_type = type(next(iter(feature_values)))
 
-            if feature_type == str:
+            # Treat numeric features as categorical if they're only 1/0 as well
+            if feature_type == str or len(feature_values) == 2:
                 self._add_categorical_feature(feature_values, feature_index, feature_name)
             else:
                 self._add_numeric_feature(feature_values, feature_index, feature_name)
@@ -290,7 +291,7 @@ class EvolutionaryBase(Classifier):
         stats.register("max", partial(pretty_format, np.max))
         stats.register("std", partial(pretty_format, np.std))
 
-        population_size = self.max_trees
+        population_size = self.num_trees
 
         pop = self.toolbox.population(n=population_size)
 
@@ -319,3 +320,8 @@ class EvolutionaryBase(Classifier):
 
         # The model with highest score is pareto_front[0]
         self.model = self.pareto_front[0]
+
+        print("Percentage of unique models: %.2f%%" % (len(self.cache) / (self.num_generations * self.num_trees) * 100))
+
+        # Clear cache
+        self.cache = {}
