@@ -7,6 +7,15 @@ Interpreting state-of-the-art machine learning algorithms can be difficult. For 
 
 ## How to use
 
+The model is a sklearn classifier, as such uses the sklearn api
+
+```python
+from src.xai import GP
+model = GP(max_trees=100, num_generations=50)
+model.fit(X_train, y_train)
+model.predict(X_test)
+```
+
 ## Cite
 
 This work was published in GECCO 2019: https://dl.acm.org/citation.cfm?id=3321707.3321726
