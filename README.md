@@ -11,9 +11,17 @@ The model is a sklearn classifier, as such uses the sklearn api
 
 ```python
 from src.xai import GP
-model = GP(max_trees=100, num_generations=50)
-model.fit(X_train, y_train)
-model.predict(X_test)
+
+# Train and predict with blackbox
+blackbox = ComplexModel()
+blackbox.train(X_train, Y_train)
+predictions = blackbox.predict(X_train)
+
+# Use GP to find out about the predictions
+explainer = GP(max_trees=100, num_generations=50)
+explainer.fit(X_train, predictions)
+
+explainer.plot("model.png") 
 ```
 
 ## Cite
