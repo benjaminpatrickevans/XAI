@@ -26,6 +26,21 @@ explainer.plot("model.png")
 explainer.plot_pareto("frontier.png")
 ```
 
+### Example Output
+
+A resulting model recreating the predictions from a 200 layer neural network
+
+<p align="center">
+<img src="https://i.imgur.com/e33h81y.png" width="300">
+</p>
+
+And visualising a frontier
+
+<p align="center">
+<img src="https://i.imgur.com/tZ4uU02.png" width="300">
+</p>
+
+
 ## Evolutionary Process
 
 ![Process](https://i.imgur.com/DgMXYJn.png)
