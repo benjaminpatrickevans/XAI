@@ -17,11 +17,13 @@ blackbox = ComplexModel()
 blackbox.train(X_train, Y_train)
 predictions = blackbox.predict(X_train)
 
-# Use GP to find out about the predictions
+# Use GP to make an approximation of the blackbox predictions
 explainer = GP(max_trees=100, num_generations=50)
 explainer.fit(X_train, predictions)
 
+# Save our approximations
 explainer.plot("model.png") 
+explainer.plot_pareto("frontier.png")
 ```
 
 ## Cite
