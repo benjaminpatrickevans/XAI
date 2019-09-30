@@ -7,7 +7,7 @@ Interpreting state-of-the-art machine learning algorithms can be difficult. For 
 
 ## How to use
 
-The model is a sklearn classifier, as such uses the sklearn api
+The GP explainer/surrogate model is implemented as sklearn classifier, and as such uses the sklearn api. To use, simply train the surrogate model on the predictions of a complex black box model. 
 
 ```python
 from src.xai import GP
@@ -25,6 +25,12 @@ explainer.fit(X_train, predictions)
 explainer.plot("model.png") 
 explainer.plot_pareto("frontier.png")
 ```
+
+## Evolutionary Process
+
+![Process](https://i.imgur.com/DgMXYJn.png)
+
+The overall training algorithm is given above. The black-box classifier is trained once only on the original data (X_train and Y_train values), then the evolutionary process is performed based on the resulting predictions (predictions) from this black-box model. The evolutionary algorithm never sees the original labels (Y_train), as this is instead attempting to recreate the predicted labels (predictions).  At the end of the evolutionary run, the result is a set of Pareto optimal models/trees which approximate the complex black-box model. Only the model with the highest reconstructive ability is used here (i.e. the largest f1). The overall evolutionary process is similar to NSGAII. When selecting individuals, the non-dominated sorting in NSGA-II algorithm is used to rank the individuals. 
 
 ## Cite
 
